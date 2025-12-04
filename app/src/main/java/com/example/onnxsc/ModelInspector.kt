@@ -6,7 +6,7 @@ import android.net.Uri
 object ModelInspector {
 
     fun inspect(contentResolver: ContentResolver, uri: Uri): Inspection {
-        val header = contentResolver.openInputStream(uri)?.use { it.readBytes().take(4096).toString(Charsets.UTF_8) } ?: ""
+        val header = contentResolver.openInputStream(uri)?.use { it.readBytes().take(4096).decodeToString() } ?: ""
         return Inspection(
             hasJsOperators = "com.microsoft.contrib" in header,
             hasNodeOps = "ai.onnx.contrib" in header || "ai.onnx.ml" in header,

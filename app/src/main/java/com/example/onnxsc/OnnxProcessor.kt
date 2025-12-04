@@ -1,60 +1,67 @@
 package com.example.onnxsc
 
+import ai.onnxruntime.*
 import android.content.Context
 import android.graphics.Bitmap
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
-import java.io.File 
-import com.microsoft.onnxruntime.OrtEnvironment
-import com.microsoft.onnxruntime.OrtSession
-import org.tensorflow.lite.DataType 
+import android.net.Uri
+import java.io.File
 
-class OnnxProcessor(private val context: Context, private val logger: Logger) {
+object OnnxProcessor {
 
-    // Inicialización del entorno ONNX
-    private val ortEnv: OrtEnvironment = OrtEnvironment.getEnvironment() 
-    private var ortSession: OrtSession? = null
+    private val ortEnv = OrtEnvironment.getEnvironment()
 
-    // Función modificada para recibir el nombre del archivo del modelo
-    fun loadModel(modelPath: String) {
-        try {
-            val modelFile = File(modelPath) 
-            if (!modelFile.exists()) {
-                logger.logError("Modelo no encontrado en la ruta: $modelPath") 
-                return
+    /**
+     * 1. Copia el modelo a filesDir
+     * 2. Crea sesión ONNX
+     * 3. Convierte Bitmap → tensor flotante 1×3×224×224
+     * 4. Ejecuta y devuelve el tensor de salida
+     */
+    fun processImage(
+        context: Context,
+        modelUri: Uri,
+        bitmap: Bitmap,
+        onLog: (String) -> Unit
+    ): OnnxTensor? {
+
+        onLog("Procesando imagen con ONNX...")
+
+        return try {
+            // 1. Copiar modelo
+            val modelFile = File(context.filesDir, "model.onnx")
+            context.contentResolver.openInputStream(modelUri)?.use { input ->
+                modelFile.outputStream().use { out -> input.copyTo(out) }
             }
+            onLog("Modelo copiado a ${modelFile.absolutePath}")
 
-            // Clases de ONNX Runtime ahora resueltas
-            ortSession = ortEnv.createSession(modelFile.absolutePath, OrtSession.SessionOptions())
-            logger.log("Modelo ONNX cargado correctamente.")
+            // 2. Crear sesión
+            val session = ortEnv.createSession(modelFile.absolutePath)
+            onLog("Sesión ONNX creada")
 
+            // 3. Preparar tensor de entrada
+            val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+            val buffer = FloatArray(224 * 224 * 3)
+            var idx = 0
+            for (y in 0 until 224) {
+                for (x in 0 until 224) {
+                    val px = resized.getPixel(x, y)
+                    buffer[idx++] = ((px shr 16) and 0xFF) / 255.0f   // R
+                    buffer[idx++] = ((px shr 8) and 0xFF) / 255.0f    // G
+                    buffer[idx++] = (px and 0xFF) / 255.0f            // B
+                }
+            }
+            val shape = longArrayOf(1, 3, 224, 224) // NCHW
+            val inputTensor = OnnxTensor.createTensor(ortEnv, buffer, shape)
+            onLog("Tensor de entrada creado")
+
+            // 4. Ejecutar
+            val output = session.run(mapOf(session.inputNames.iterator().next() to inputTensor))
+            onLog("Inferencia finalizada")
+
+            inputTensor.close() // liberar entrada
+            output.use { it[0] as OnnxTensor } // devolver salida
         } catch (e: Exception) {
-            logger.logError("Error al cargar el modelo: ${e.message}")
+            onLog("Error en ONNX: ${e.message}")
+            null
         }
-    }
-
-    fun process(bitmap: Bitmap): String {
-        if (ortSession == null) {
-            logger.logError("Sesión de ONNX no iniciada.")
-            return "Error"
-        }
-
-        try {
-            // Ejemplo de uso de las clases TFLite Support
-            val tensorImage = TensorImage.fromBitmap(bitmap) 
-            val inputBuffer = TensorBuffer.createFixedSize(intArrayOf(1, 224, 224, 3), DataType.FLOAT32) 
-            
-            // Lógica de procesamiento
-            
-            return "Procesamiento completado"
-        } catch (e: Exception) {
-            logger.logError("Error durante el procesamiento: ${e.message}")
-            return "Error"
-        }
-    }
-
-    fun close() {
-        ortSession?.close()
-        ortEnv.close()
     }
 }

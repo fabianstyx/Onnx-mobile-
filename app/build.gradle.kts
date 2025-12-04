@@ -42,8 +42,8 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     
-    // ONNX Runtime Android - versión estable específica
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.16.1")
+    // ONNX Runtime Android - versión estable más reciente
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     
     // TensorFlow Lite Core y Support
     implementation("org.tensorflow:tensorflow-lite:2.15.0")

@@ -36,19 +36,19 @@ android {
 }
 
 dependencies {
-    // Dependencias Base de Android y Material Design
+    // Base Android y Material Design
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     
-    // Dependencia de ONNX (Core)
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:latest.release")
+    // ONNX Runtime Android - versión estable específica
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.16.1")
     
-    // Dependencias de TensorFlow Lite (Core y Support)
+    // TensorFlow Lite Core y Support
     implementation("org.tensorflow:tensorflow-lite:2.15.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4") 
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     
-    // Dependencia de Android Activity KTX (para registerForActivityResult)
-    implementation("androidx.activity:activity-ktx:1.8.2") 
+    // Activity KTX para registerForActivityResult
+    implementation("androidx.activity:activity-ktx:1.8.2")
 }

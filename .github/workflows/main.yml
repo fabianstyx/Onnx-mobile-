@@ -23,6 +23,19 @@ jobs:
     - name: Grant Gradle wrapper permissions
       run: chmod +x gradlew
 
+    - name: Ensure Gradle wrapper JARs exist
+      run: |
+        VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-(.*)-bin.zip/\1/')
+        mkdir -p gradle/wrapper
+        if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+          echo "Downloading gradle-wrapper-main-${VERSION}.jar..."
+          curl -L "https://services.gradle.org/distributions/gradle-wrapper-main-${VERSION}.jar" -o gradle/wrapper/gradle-wrapper.jar
+        fi
+        if [ ! -f gradle/wrapper/gradle-wrapper-shared.jar ]; then
+          echo "Downloading gradle-wrapper-shared-${VERSION}.jar..."
+          curl -L "https://services.gradle.org/distributions/gradle-wrapper-shared-${VERSION}.jar" -o gradle/wrapper/gradle-wrapper-shared.jar
+        fi
+
     - name: Build APK
       run: ./gradlew :app:assembleDebug
 

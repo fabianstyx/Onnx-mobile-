@@ -1,16 +1,12 @@
 package com.example.onnxsc
 
 import android.content.Context
-import android.net.Uri
 import android.content.ContentResolver
+import android.net.Uri
 import java.io.File
-import java.io.InputStream
 
 object ExternalWeightsManager {
 
-    /**
-     * Copia los pesos externos a la carpeta de datos de la app.
-     */
     fun copyExternalWeights(
         context: Context,
         contentResolver: ContentResolver,
@@ -18,22 +14,17 @@ object ExternalWeightsManager {
         onLog: (String) -> Unit
     ): Boolean {
         onLog("Copiando pesos externos...")
-
-        val modelDir = File(context.filesDir, "models")
-        if (!modelDir.exists()) modelDir.mkdirs()
-
+        val modelDir = File(context.filesDir, "models").apply { mkdirs() }
         val weightsFile = File(modelDir, "external_weights.bin")
-        try {
-            contentResolver.openInputStream(modelUri)?.use { inputStream ->
-                weightsFile.outputStream().use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
+        return try {
+            contentResolver.openInputStream(modelUri)?.use { input ->
+                weightsFile.outputStream().use { out -> input.copyTo(out) }
             }
             onLog("Pesos externos copiados a ${weightsFile.absolutePath}")
-            return true
+            true
         } catch (e: Exception) {
             onLog("Error al copiar pesos externos: ${e.message}")
-            return false
+            false
         }
     }
 }

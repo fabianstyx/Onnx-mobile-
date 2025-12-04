@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches:
-      - main  # Cambia a la rama que uses
+      - main
   pull_request:
 
 jobs:
@@ -22,6 +22,20 @@ jobs:
 
     - name: Grant Gradle wrapper permissions
       run: chmod +x gradlew
+
+    - name: Ensure Gradle wrapper exists
+      run: |
+        WRAPPER_JAR=gradle/wrapper/gradle-wrapper.jar
+        VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-(.*)-bin.zip/\1/')
+        if [ ! -f "$WRAPPER_JAR" ]; then
+          echo "gradle-wrapper.jar missing, downloading from Gradle ${VERSION} distribution..."
+          mkdir -p gradle/wrapper
+          curl -L "https://services.gradle.org/distributions/gradle-${VERSION}-bin.zip" -o gradle.zip
+          unzip -j gradle.zip "gradle-${VERSION}/lib/gradle-wrapper.jar" -d gradle/wrapper
+          rm gradle.zip
+        else
+          echo "gradle-wrapper.jar exists."
+        fi
 
     - name: Build APK
       run: ./gradlew :app:assembleDebug

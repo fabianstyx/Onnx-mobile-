@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches:
-      - main  # o la rama que uses
+      - main  # Cambia a la rama que uses
   pull_request:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
       run: ./gradlew :app:assembleDebug
 
     - name: Upload APK
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: app-debug-apk
         path: app/build/outputs/apk/debug/app-debug.apk

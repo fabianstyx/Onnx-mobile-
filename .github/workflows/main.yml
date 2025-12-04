@@ -28,11 +28,9 @@ jobs:
         WRAPPER_JAR=gradle/wrapper/gradle-wrapper.jar
         VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-(.*)-bin.zip/\1/')
         if [ ! -f "$WRAPPER_JAR" ]; then
-          echo "gradle-wrapper.jar missing, downloading from Gradle ${VERSION} distribution..."
+          echo "gradle-wrapper.jar missing, downloading correct version ${VERSION}..."
           mkdir -p gradle/wrapper
-          curl -L "https://services.gradle.org/distributions/gradle-${VERSION}-bin.zip" -o gradle.zip
-          unzip -j gradle.zip "gradle-${VERSION}/lib/gradle-wrapper.jar" -d gradle/wrapper
-          rm gradle.zip
+          curl -L "https://services.gradle.org/distributions/gradle-wrapper-${VERSION}.jar" -o "$WRAPPER_JAR"
         else
           echo "gradle-wrapper.jar exists."
         fi

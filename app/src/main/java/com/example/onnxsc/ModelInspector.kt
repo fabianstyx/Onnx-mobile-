@@ -6,12 +6,27 @@ import android.net.Uri
 object ModelInspector {
 
     fun inspect(contentResolver: ContentResolver, uri: Uri): Inspection {
-        val header = contentResolver.openInputStream(uri)?.use { it.readBytes().take(4096).decodeToString() } ?: ""
+        val inputStream = contentResolver.openInputStream(uri)
+        if (inputStream == null) {
+            return Inspection(false, false, false, 0)
+        }
+
+        val bytes = inputStream.use { it.readBytes().take(4096).toByteArray() }
+        // Convertir a String usando UTF-8
+        val header = try {
+            String(bytes, Charsets.UTF_8)
+        } catch (e: Exception) {
+            ""
+        }
+
+        val fileDescriptor = contentResolver.openFileDescriptor(uri, "r")
+        val sizeKb = (fileDescriptor?.statSize ?: 0) / 1024
+
         return Inspection(
-            hasJsOperators = "com.microsoft.contrib" in header,
-            hasNodeOps = "ai.onnx.contrib" in header || "ai.onnx.ml" in header,
-            hasExternalWeights = "external_data" in header,
-            sizeKb = (contentResolver.openFileDescriptor(uri, "r")?.statSize ?: 0) / 1024
+            hasJsOperators = header.contains("com.microsoft.contrib"),
+            hasNodeOps = header.contains("ai.onnx.contrib") || header.contains("ai.onnx.ml"),
+            hasExternalWeights = header.contains("external_data"),
+            sizeKb = sizeKb
         )
     }
 

@@ -3,16 +3,41 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:padding="24dp">
 
+    <!-- Botón elegir modelo -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnPickModel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="@string/select_model"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        style="@style/Widget.Material3.Button.TonalButton" />
+
+    <!-- Botón capturar -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnCapture"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="@string/capture"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/btnPickModel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        style="@style/Widget.Material3.Button" />
+
+    <!-- Texto de estado -->
     <TextView
-        android:id="@+id/hello"
+        android:id="@+id/txtStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="¡Hola ONNX!"
-        android:textSize="24sp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:text="@string/no_model"
+        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:layout_marginTop="24dp"
+        app:layout_constraintTop_toBottomOf="@id/btnCapture"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>

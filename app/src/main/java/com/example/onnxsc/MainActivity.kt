@@ -1,11 +1,50 @@
 package com.example.onnxsc
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.widget.TextView
+import android.widget.Toast
+import com.example.onnxsc.databinding.ActivityMainBinding
 
 class MainActivity : Activity() {
+
+    private lateinit var binding: ActivityMainBinding
+    private var modelUri: Uri? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_ONNXSC)   // Material 3
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)   // ← el que acabamos de crear
+
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        binding.btnPickModel.setOnClickListener { pickModel() }
+        binding.btnCapture.setOnClickListener { startCapture() }
+    }
+
+    private fun pickModel() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, 123)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 123 && resultCode == RESULT_OK) {
+            modelUri = data?.data
+            binding.txtStatus.text = modelUri?.lastPathSegment ?: getString(R.string.no_model)
+        }
+    }
+
+    private fun startCapture() {
+        if (modelUri == null) {
+            Toast.makeText(this, "Primero selecciona un modelo", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "Captura no implementada aún", Toast.LENGTH_SHORT).show()
     }
 }

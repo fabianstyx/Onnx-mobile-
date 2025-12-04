@@ -8,15 +8,14 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import com.example.onnxsc.databinding.ActivityMainBinding
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var modelUri: Uri? = null
-    private var lastInspection: Inspection? = null
+    private var lastInspection: ModelInspector.Inspection? = null
 
-    /* -------- SELECTOR DE MODELO -------- */
+    /* Selector de modelo */
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let {
@@ -27,7 +26,7 @@ class MainActivity : ComponentActivity() {
             } ?: Logger.error("No se eligió archivo")
         }
 
-    /* -------- CAPTURA DE PANTALLA -------- */
+    /* Captura de pantalla */
     private val captureLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
@@ -53,7 +52,6 @@ class MainActivity : ComponentActivity() {
         binding.btnClearConsole.setOnClickListener { Logger.clear() }
     }
 
-    /* -------- LÓGICA DE MODELO -------- */
     private fun inspectModel(uri: Uri) {
         lastInspection = contentResolver?.let { ModelInspector.inspect(it, uri) }
         lastInspection?.let { ins ->
@@ -68,7 +66,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /* -------- SOLICITAR CAPTURA -------- */
     private fun requestScreenCapture() {
         if (modelUri == null) {
             Logger.error("No hay modelo cargado")
@@ -79,7 +76,6 @@ class MainActivity : ComponentActivity() {
         captureLauncher.launch(intent)
     }
 
-    /* -------- PROCESAR CAPTURA -------- */
     private fun processScreenCapture(data: Intent) {
         Logger.info("Iniciando captura real...")
         val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager

@@ -6,6 +6,6 @@ import android.os.Bundle
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(android.R.layout.simple_list_item_1) // layout temporal
+        setContentView(R.layout.activity_main)   // ← el que acabamos de crear
     }
 }

@@ -3,12 +3,14 @@ package com.example.onnxsc
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.onnxsc.databinding.ActivityMainBinding
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var modelUri: Uri? = null
@@ -30,7 +32,6 @@ class MainActivity : Activity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                // Aquí iría el MediaProjection real
                 processScreenCapture(result.data!!)
             } else {
                 Logger.error("Permiso de captura DENEGADO")
@@ -73,7 +74,7 @@ class MainActivity : Activity() {
             Logger.error("No hay modelo cargado")
             return
         }
-        val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+        val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val intent = mpManager.createScreenCaptureIntent()
         captureLauncher.launch(intent)
     }
@@ -81,8 +82,51 @@ class MainActivity : Activity() {
     /* -------- PROCESAR CAPTURA -------- */
     private fun processScreenCapture(data: Intent) {
         Logger.info("Iniciando captura real...")
-        // Aquí obtendrías el MediaProjection y capturarías frames
-        // Por ahora simulamos:
-        Logger.success("Captura iniciada (mock)")
+        val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val projection = mpManager.getMediaProjection(RESULT_OK, data) ?: run {
+            Logger.error("No se pudo obtener MediaProjection")
+            return
+        }
+
+        val metrics = resources.displayMetrics
+        val width = metrics.widthPixels
+        val height = metrics.heightPixels
+        val density = metrics.densityDpi
+
+        val imageReader = android.media.ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 1)
+        val virtualDisplay = projection.createVirtualDisplay(
+            "screenCap", width, height, density,
+            android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.surface, null, null
+        )
+
+        imageReader.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * width
+            val bitmap = Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            image.close()
+            virtualDisplay?.release()
+            projection.stop()
+
+            modelUri?.let { uri ->
+                val result = OnnxProcessor.processImage(this, uri, bitmap) { log -> Logger.info(log) }
+                if (result != null) {
+                    Logger.success("Inferencia terminada")
+                    result.close()
+                } else {
+                    Logger.error("Falló la inferencia")
+                }
+            }
+            imageReader.setOnImageAvailableListener(null, null)
+        }, null)
     }
 }

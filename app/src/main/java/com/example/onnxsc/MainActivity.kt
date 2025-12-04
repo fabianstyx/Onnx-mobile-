@@ -19,12 +19,16 @@ class MainActivity : Activity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // listeners
+        Logger.init(binding.txtConsole)
+        Logger.info("App iniciada")
+
         binding.btnPickModel.setOnClickListener { pickModel() }
         binding.btnCapture.setOnClickListener { startCapture() }
+        binding.btnClearConsole.setOnClickListener { Logger.clear() }
     }
 
     private fun pickModel() {
+        Logger.info("Seleccionando modelo...")
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "*/*"
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -36,15 +40,20 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 123 && resultCode == RESULT_OK) {
             modelUri = data?.data
-            binding.txtModel.text = modelUri?.lastPathSegment ?: getString(R.string.no_model)
+            val name = modelUri?.lastPathSegment ?: "desconocido"
+            Logger.success("Modelo cargado: $name")
+        } else {
+            Logger.error("No se eligió ningún archivo")
         }
     }
 
     private fun startCapture() {
         if (modelUri == null) {
-            Toast.makeText(this, "Primero selecciona un modelo", Toast.LENGTH_SHORT).show()
+            Logger.error("No hay modelo cargado")
             return
         }
-        Toast.makeText(this, "Captura no implementada aún", Toast.LENGTH_SHORT).show()
+        Logger.info("Iniciando captura de pantalla...")
+        // Aquí irá MediaProjection + ONNX
+        Logger.success("Captura finalizada (mock)")
     }
 }

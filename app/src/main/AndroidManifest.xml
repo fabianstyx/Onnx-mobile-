@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Permisos mínimos para capturar pantalla + guardar -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.CAPTURE_VIDEO_OUTPUT"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
@@ -8,9 +9,11 @@
 
     <application
         android:allowBackup="true"
-        android:label="ONNX Screen"
+        android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar">
+        android:theme="@style/Theme.App">   <!-- tema que acabamos de crear -->
+
+        <!-- Actividad principal -->
         <activity
             android:name=".MainActivity"
             android:exported="true">

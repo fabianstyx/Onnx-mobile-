@@ -23,18 +23,6 @@ jobs:
     - name: Grant Gradle wrapper permissions
       run: chmod +x gradlew
 
-    - name: Ensure Gradle wrapper exists
-      run: |
-        WRAPPER_JAR=gradle/wrapper/gradle-wrapper.jar
-        VERSION=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed -E 's/.*gradle-(.*)-bin.zip/\1/')
-        if [ ! -f "$WRAPPER_JAR" ]; then
-          echo "gradle-wrapper.jar missing, downloading correct version ${VERSION}..."
-          mkdir -p gradle/wrapper
-          curl -L "https://services.gradle.org/distributions/gradle-wrapper-${VERSION}.jar" -o "$WRAPPER_JAR"
-        else
-          echo "gradle-wrapper.jar exists."
-        fi
-
     - name: Build APK
       run: ./gradlew :app:assembleDebug
 

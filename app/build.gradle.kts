@@ -18,7 +18,6 @@ android {
     buildTypes {
         getByName("debug") {
             isDebuggable = true
-            // Asumiendo que signingConfigs.getByName("debug") está definido en un lugar accesible
             // signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -33,7 +32,7 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true // Es bueno para referenciar vistas desde MainActivity.kt
+        viewBinding = true
     }
 }
 
@@ -44,13 +43,15 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     
-    // Dependencia de ONNX (se mantiene)
+    // Dependencia de ONNX
     implementation("com.microsoft.onnxruntime:onnxruntime-android:latest.release")
     
-    // CORRECCIÓN CLAVE: Usamos una versión estable de TensorFlow Lite (2.15.0)
-    // Esto resuelve el error 'Could not find org.tensorflow:tensorflow-lite:0.0.0-nightly'
+    // Dependencias de TensorFlow Lite (Core)
     implementation("org.tensorflow:tensorflow-lite:2.15.0")
     
-    // Opcional: Recomendado si usas modelos de TFLite en la GPU
-    // implementation("org.tensorflow:tensorflow-lite-gpu:2.15.0")
+    // ✅ CORRECCIÓN 1: TENSORFLOW LITE SUPPORT (para TensorImage, TensorBuffer)
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4") 
+    
+    // ✅ CORRECCIÓN 2: ACTIVITY KTX (para registerForActivityResult)
+    implementation("androidx.activity:activity-ktx:1.8.2") 
 }

@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.widget.TextView
 import android.widget.Toast
 import com.example.onnxsc.databinding.ActivityMainBinding
 
@@ -14,12 +13,13 @@ class MainActivity : Activity() {
     private var modelUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(R.style.Theme_ONNXSC)   // Material 3
+        setTheme(R.style.Theme_ONNXSC)
         super.onCreate(savedInstanceState)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // listeners
         binding.btnPickModel.setOnClickListener { pickModel() }
         binding.btnCapture.setOnClickListener { startCapture() }
     }
@@ -36,7 +36,7 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 123 && resultCode == RESULT_OK) {
             modelUri = data?.data
-            binding.txtStatus.text = modelUri?.lastPathSegment ?: getString(R.string.no_model)
+            binding.txtModel.text = modelUri?.lastPathSegment ?: getString(R.string.no_model)
         }
     }
 

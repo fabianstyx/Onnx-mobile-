@@ -2,11 +2,12 @@
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/colorSurface">
+    android:background="?attr/colorSurface"
+    tools:context=".MainActivity">
 
-    <!-- AppBar compacta -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
@@ -20,7 +21,6 @@
             style="@style/Widget.Material3.Toolbar.Surface" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Contenido -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -49,11 +49,11 @@
                     android:orientation="vertical"
                     android:padding="24dp">
 
-                <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@drawable/ic_model_24"
-                    app:tint="?attr/colorPrimary" />
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_model_24"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -66,7 +66,7 @@
                         android:id="@+id/txtModel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Ningún modelo seleccionado"
+                        android:text="@string/no_model"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:layout_marginTop="8dp" />
 
@@ -98,11 +98,11 @@
                     android:orientation="vertical"
                     android:padding="24dp">
 
-                <ImageView
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@drawable/ic_cam_24"
-                    app:tint="?attr/colorPrimary" />
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_cam_24"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -124,11 +124,10 @@
                         android:layout_height="wrap_content"
                         android:text="@string/capture"
                         android:layout_marginTop="16dp"
-                        icon="@drawable/ic_cam_24"
+                        app:icon="@drawable/ic_cam_24"
                         style="@style/Widget.Material3.Button" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
         </androidx.constraintlayout.widget.ConstraintLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

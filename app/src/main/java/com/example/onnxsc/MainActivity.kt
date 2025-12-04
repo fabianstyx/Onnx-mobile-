@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.onnxsc.databinding.ActivityMainBinding
 
 class MainActivity : ComponentActivity() {
 

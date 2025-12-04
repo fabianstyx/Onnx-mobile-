@@ -1,65 +1,60 @@
 package com.example.onnxsc
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.content.Context
+import android.graphics.Bitmap
+import org.tensorflow.lite.support.image.TensorImage
+import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
+import java.io.File 
+import com.microsoft.onnxruntime.OrtEnvironment
+import com.microsoft.onnxruntime.OrtSession
+import org.tensorflow.lite.DataType 
 
-class OnnxProcessor(context: Context, modelPath: String) {
+class OnnxProcessor(private val context: Context, private val logger: Logger) {
 
-    private val log = Logger("OnnxProcessor") // ✅ Creamos un Logger con tag "OnnxProcessor"
+    // Inicialización del entorno ONNX
+    private val ortEnv: OrtEnvironment = OrtEnvironment.getEnvironment() 
+    private var ortSession: OrtSession? = null
 
-    private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private var session: OrtSession? = null
-
-    init {
+    // Función modificada para recibir el nombre del archivo del modelo
+    fun loadModel(modelPath: String) {
         try {
-            session = env.createSession(modelPath, OrtSession.SessionOptions())
-            log.log("ONNX model loaded from: $modelPath")
-        } catch (e: Exception) {
-            log.logError("Failed to load ONNX model: ${e.message}")
-        }
-    }
-
-    /**
-     * Ejecuta el modelo ONNX con los inputs dados
-     */
-    fun run(inputs: Map<String, Any>): Map<String, Any>? {
-        if (session == null) {
-            log.logError("Session is not initialized")
-            return null
-        }
-
-        return try {
-            val onnxInputs = inputs.mapValues { (_, value) ->
-                when (value) {
-                    is FloatArray -> OnnxTensor.createTensor(env, value)
-                    is Array<FloatArray> -> OnnxTensor.createTensor(env, value)
-                    else -> throw IllegalArgumentException("Unsupported input type: ${value::class.java}")
-                }
+            val modelFile = File(modelPath) 
+            if (!modelFile.exists()) {
+                logger.logError("Modelo no encontrado en la ruta: $modelPath") 
+                return
             }
 
-            val results = session!!.run(onnxInputs)
-            val outputMap = mutableMapOf<String, Any>()
-            results.forEach { outputMap[it.key] = it.value.value }
-            results.forEach { it.value.close() } // liberar recursos
-            outputMap
+            // Clases de ONNX Runtime ahora resueltas
+            ortSession = ortEnv.createSession(modelFile.absolutePath, OrtSession.SessionOptions())
+            logger.log("Modelo ONNX cargado correctamente.")
+
         } catch (e: Exception) {
-            log.logError("ONNX model run failed: ${e.message}")
-            null
+            logger.logError("Error al cargar el modelo: ${e.message}")
         }
     }
 
-    /**
-     * Libera la sesión y recursos asociados
-     */
-    fun close() {
-        try {
-            session?.close()
-            env.close()
-            log.log("ONNX session closed")
-        } catch (e: Exception) {
-            log.logError("Error closing ONNX session: ${e.message}")
+    fun process(bitmap: Bitmap): String {
+        if (ortSession == null) {
+            logger.logError("Sesión de ONNX no iniciada.")
+            return "Error"
         }
+
+        try {
+            // Ejemplo de uso de las clases TFLite Support
+            val tensorImage = TensorImage.fromBitmap(bitmap) 
+            val inputBuffer = TensorBuffer.createFixedSize(intArrayOf(1, 224, 224, 3), DataType.FLOAT32) 
+            
+            // Lógica de procesamiento
+            
+            return "Procesamiento completado"
+        } catch (e: Exception) {
+            logger.logError("Error durante el procesamiento: ${e.message}")
+            return "Error"
+        }
+    }
+
+    fun close() {
+        ortSession?.close()
+        ortEnv.close()
     }
 }

@@ -235,18 +235,21 @@ class MainActivity : ComponentActivity() {
         }
         
         try {
+            ScreenCaptureService.setOnReadyCallback {
+                mainHandler.post {
+                    obtainMediaProjectionAndCapture(captureIntent)
+                }
+            }
+            
             val serviceIntent = Intent(this, ScreenCaptureService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent)
             } else {
                 startService(serviceIntent)
             }
-            
-            mainHandler.postDelayed({
-                obtainMediaProjectionAndCapture(captureIntent)
-            }, 150)
         } catch (e: Exception) {
             Logger.error("Error al iniciar servicio: ${e.message}")
+            ScreenCaptureService.setOnReadyCallback(null)
         }
     }
     
@@ -454,6 +457,7 @@ class MainActivity : ComponentActivity() {
 
     private fun cleanupCaptureResources() {
         pendingCaptureIntent = null
+        ScreenCaptureService.setOnReadyCallback(null)
         
         try {
             imageReader?.setOnImageAvailableListener(null, null)

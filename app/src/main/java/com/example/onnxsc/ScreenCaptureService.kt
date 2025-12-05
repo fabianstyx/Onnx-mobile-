@@ -16,6 +16,12 @@ class ScreenCaptureService : Service() {
     companion object {
         const val CHANNEL_ID = "onnx_screen_capture"
         const val NOTIFICATION_ID = 1001
+        
+        private var onReadyCallback: (() -> Unit)? = null
+        
+        fun setOnReadyCallback(callback: (() -> Unit)?) {
+            onReadyCallback = callback
+        }
     }
 
     override fun onCreate() {
@@ -26,14 +32,22 @@ class ScreenCaptureService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification()
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            
+            onReadyCallback?.invoke()
+            onReadyCallback = null
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
         
         return START_NOT_STICKY
@@ -77,6 +91,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        onReadyCallback = null
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 }

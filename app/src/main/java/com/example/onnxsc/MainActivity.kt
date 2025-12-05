@@ -402,25 +402,29 @@ class MainActivity : ComponentActivity() {
     private fun startCaptureService(resultCode: Int, data: Intent) {
         Logger.info("Iniciando servicio de captura...")
         
+        StatusOverlay.reset()
+        ResultOverlay.clear(binding.overlayContainer)
+        
         ScreenCaptureService.setCallbacks(
             onFrame = { bitmap ->
                 processFrame(bitmap)
             },
             onError = { error ->
-                Logger.error(error)
+                Logger.error("[Captura] Error: $error")
             },
             onStarted = {
+                Logger.info("[Callback] onStarted recibido")
                 isCapturing.set(true)
                 binding.btnCapture.text = "Detener captura"
                 Logger.success("Captura iniciada - Procesando frames...")
                 
-                if (!isShowingStatus) {
-                    StatusOverlay.show(binding.overlayContainer)
-                    StatusOverlay.setRecording(true)
-                    isShowingStatus = true
-                }
+                StatusOverlay.show(binding.overlayContainer)
+                StatusOverlay.setRecording(true)
+                isShowingStatus = true
+                Logger.info("[Callback] StatusOverlay.show() ejecutado")
             },
             onStopped = {
+                Logger.info("[Callback] onStopped recibido")
                 isCapturing.set(false)
                 binding.btnCapture.text = getString(R.string.capture)
                 Logger.info("Captura detenida")
@@ -541,13 +545,17 @@ class MainActivity : ComponentActivity() {
                             lastDetections = result.allDetections
                             
                             currentDetectionCount = result.allDetections.size
-                            StatusOverlay.updateDetectionCount(currentDetectionCount)
+                            val fps = FpsMeter.getCurrentFps()
+                            val latency = FpsMeter.getCurrentLatency()
+                            StatusOverlay.updateStats(fps, latency, currentDetectionCount)
                             
                             ResultOverlay.setSourceDimensions(bitmapWidth, bitmapHeight)
                             ResultOverlay.clear(binding.overlayContainer)
                             if (result.allDetections.isNotEmpty()) {
+                                Logger.info("[Frame] ${result.allDetections.size} detecciones, FPS=${"%.1f".format(fps)}, ${bitmapWidth}x${bitmapHeight}")
                                 ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
                             } else if (result.probability > 0) {
+                                Logger.info("[Frame] Clasificacion: ${result.className} (${result.probability})")
                                 ResultOverlay.show(
                                     binding.overlayContainer,
                                     result.className,
@@ -559,6 +567,7 @@ class MainActivity : ComponentActivity() {
                             safeRecycleBitmap(finalBitmapCopy)
                         }
                     } catch (e: Exception) {
+                        Logger.error("[Frame] Error mostrando resultado: ${e.message}")
                         safeRecycleBitmap(finalBitmapCopy)
                     } finally {
                         pendingFrames.decrementAndGet()

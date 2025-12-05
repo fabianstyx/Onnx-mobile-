@@ -38,17 +38,22 @@ object ResultOverlay {
     )
 
     fun showMultiple(parent: ViewGroup, detections: List<Detection>) {
+        Logger.info("[ResultOverlay] showMultiple() con ${detections.size} detecciones, srcDim=${sourceWidth}x${sourceHeight}")
+        
         synchronized(lock) {
             val context = parent.context
 
             runOnMainThread {
                 try {
                     for (view in overlayViews.toList()) {
-                        parent.removeView(view)
+                        try { parent.removeView(view) } catch (e: Exception) {}
                     }
                     overlayViews.clear()
 
-                    if (detections.isEmpty()) return@runOnMainThread
+                    if (detections.isEmpty()) {
+                        Logger.info("[ResultOverlay] No hay detecciones para mostrar")
+                        return@runOnMainThread
+                    }
 
                     val summaryLayout = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
@@ -103,6 +108,7 @@ object ResultOverlay {
                     parent.addView(summaryLayout, summaryParams)
                     overlayViews.add(summaryLayout)
 
+                    var bboxCount = 0
                     for ((index, det) in detections.withIndex()) {
                         if (det.bbox.width() > 0 && det.bbox.height() > 0) {
                             val color = COLORS[det.classId % COLORS.size]
@@ -121,9 +127,16 @@ object ResultOverlay {
                             )
                             parent.addView(bboxView, bboxParams)
                             overlayViews.add(bboxView)
+                            bboxCount++
+                            
+                            if (index < 3) {
+                                Logger.info("[ResultOverlay] Bbox $index: ${det.className} (${det.confidence}) @ ${det.bbox}")
+                            }
                         }
                     }
+                    Logger.info("[ResultOverlay] ${bboxCount} bboxes agregados al overlay")
                 } catch (e: Exception) {
+                    Logger.error("[ResultOverlay] Error: ${e.message}")
                 }
             }
         }
@@ -255,35 +268,41 @@ object ResultOverlay {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             
+            if (width <= 0 || height <= 0) return
             if (bbox.width() <= 0 || bbox.height() <= 0) return
 
-            val scaleX = if (srcWidth > 0) width.toFloat() / srcWidth else 1f
-            val scaleY = if (srcHeight > 0) height.toFloat() / srcHeight else 1f
+            val effectiveSrcWidth = if (srcWidth > 0) srcWidth else width
+            val effectiveSrcHeight = if (srcHeight > 0) srcHeight else height
+            
+            val scaleX = width.toFloat() / effectiveSrcWidth
+            val scaleY = height.toFloat() / effectiveSrcHeight
 
             val scaledBox = RectF(
-                (bbox.left * scaleX).coerceAtLeast(5f),
-                (bbox.top * scaleY).coerceAtLeast(5f),
-                (bbox.right * scaleX).coerceAtMost(width.toFloat() - 5f),
-                (bbox.bottom * scaleY).coerceAtMost(height.toFloat() - 5f)
+                (bbox.left * scaleX).coerceIn(5f, width.toFloat() - 5f),
+                (bbox.top * scaleY).coerceIn(5f, height.toFloat() - 5f),
+                (bbox.right * scaleX).coerceIn(5f, width.toFloat() - 5f),
+                (bbox.bottom * scaleY).coerceIn(5f, height.toFloat() - 5f)
             )
+            
+            if (scaledBox.width() <= 10 || scaledBox.height() <= 10) return
 
             canvas.drawRect(scaledBox, outlinePaint)
             canvas.drawRect(scaledBox, strokePaint)
 
             val labelText = "$label ${(confidence * 100).toInt()}%"
             val textWidth = textPaint.measureText(labelText)
-            val textHeight = 40f
-            val labelTop = (scaledBox.top - textHeight - 4).coerceAtLeast(0f)
+            val textHeight = 44f
+            val labelTop = (scaledBox.top - textHeight - 6).coerceAtLeast(0f)
 
             canvas.drawRect(
-                scaledBox.left - 2,
+                scaledBox.left - 4,
                 labelTop,
-                scaledBox.left + textWidth + 20,
-                labelTop + textHeight,
+                scaledBox.left + textWidth + 24,
+                labelTop + textHeight + 4,
                 bgPaint
             )
 
-            canvas.drawText(labelText, scaledBox.left + 8, labelTop + textHeight - 10, textPaint)
+            canvas.drawText(labelText, scaledBox.left + 10, labelTop + textHeight - 8, textPaint)
         }
     }
 }

@@ -5,3 +5,4 @@
 [x] 5. Fix ONNX tensor error - handle OnnxSequence, OnnxMap, and other output types
 [x] 6. Reduce console spam - add throttling and duplicate message filtering
 [x] 7. Make console scrollable and text selectable/copyable
+[x] 8. Fix Kotlin smart cast error in ScreenCaptureService.kt - capture mutable bitmap variable in immutable local before closure

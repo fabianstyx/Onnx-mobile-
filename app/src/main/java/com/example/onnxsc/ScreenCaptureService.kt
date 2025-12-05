@@ -288,8 +288,9 @@ class ScreenCaptureService : Service() {
                 image.close()
                 
                 finalBitmap = if (bitmapWidth > screenWidth) {
-                    Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight).also {
-                        bitmap.recycle()
+                    val bitmapToRecycle = bitmap
+                    Bitmap.createBitmap(bitmapToRecycle, 0, 0, screenWidth, screenHeight).also {
+                        bitmapToRecycle?.recycle()
                         bitmap = null
                     }
                 } else {

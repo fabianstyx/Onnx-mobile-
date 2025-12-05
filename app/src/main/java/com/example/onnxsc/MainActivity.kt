@@ -1,6 +1,7 @@
 package com.example.onnxsc
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -37,7 +38,6 @@ class MainActivity : ComponentActivity() {
     private val isCapturing = AtomicBoolean(false)
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
-    private var pendingCaptureIntent: Intent? = null
 
     private val lastProcessedTime = AtomicLong(0)
     private val minFrameInterval = 16L
@@ -64,10 +64,9 @@ class MainActivity : ComponentActivity() {
 
     private val captureLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK && result.data != null) {
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                pendingCaptureIntent = result.data!!.clone() as Intent
-                startForegroundServiceThenCapture()
+                startCaptureWithService(result.resultCode, result.data!!)
             } else {
                 Logger.error("Permiso de captura DENEGADO")
             }
@@ -227,21 +226,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startForegroundServiceThenCapture() {
-        val captureIntent = pendingCaptureIntent
-        if (captureIntent == null) {
-            Logger.error("No hay Intent de captura pendiente")
-            return
+    private fun startCaptureWithService(resultCode: Int, data: Intent) {
+        Logger.info("Iniciando servicio de captura...")
+        
+        ScreenCaptureService.setMediaProjectionCallback { projection ->
+            mainHandler.post {
+                if (projection != null) {
+                    Logger.info("MediaProjection obtenido correctamente")
+                    mediaProjection = projection
+                    setupScreenCapture()
+                } else {
+                    Logger.error("No se pudo obtener MediaProjection")
+                    try {
+                        stopService(Intent(this, ScreenCaptureService::class.java))
+                    } catch (e: Exception) { }
+                }
+            }
         }
         
         try {
-            ScreenCaptureService.setOnReadyCallback {
-                mainHandler.post {
-                    obtainMediaProjectionAndCapture(captureIntent)
-                }
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
             }
             
-            val serviceIntent = Intent(this, ScreenCaptureService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent)
             } else {
@@ -249,36 +257,7 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             Logger.error("Error al iniciar servicio: ${e.message}")
-            ScreenCaptureService.setOnReadyCallback(null)
-        }
-    }
-    
-    private fun obtainMediaProjectionAndCapture(captureIntent: Intent) {
-        try {
-            val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            
-            mediaProjection = try {
-                mpManager.getMediaProjection(RESULT_OK, captureIntent)
-            } catch (e: SecurityException) {
-                Logger.error("Error de seguridad: ${e.message}")
-                null
-            } catch (e: Exception) {
-                Logger.error("Error obteniendo MediaProjection: ${e.message}")
-                null
-            }
-            
-            pendingCaptureIntent = null
-            
-            if (mediaProjection != null) {
-                setupScreenCapture()
-            } else {
-                Logger.error("No se pudo obtener MediaProjection")
-                try {
-                    stopService(Intent(this, ScreenCaptureService::class.java))
-                } catch (e: Exception) { }
-            }
-        } catch (e: Exception) {
-            Logger.error("Error en captura: ${e.message}")
+            ScreenCaptureService.setMediaProjectionCallback(null)
         }
     }
 
@@ -456,8 +435,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cleanupCaptureResources() {
-        pendingCaptureIntent = null
-        ScreenCaptureService.setOnReadyCallback(null)
+        ScreenCaptureService.setMediaProjectionCallback(null)
         
         try {
             imageReader?.setOnImageAvailableListener(null, null)

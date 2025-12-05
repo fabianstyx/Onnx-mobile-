@@ -91,10 +91,11 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Recent Changes
 - **2025-12-05**: 
-  - **FIX CRÍTICO**: Corregido crash de MediaProjection en Android 14+ (API 34)
-    - El servicio foreground ahora se inicia ANTES de obtener MediaProjection
-    - Sistema de callback para garantizar que el servicio esté listo
-    - Clonación correcta del Intent de captura
+  - **FIX CRÍTICO v2**: Corregido crash de MediaProjection en Android 14+ (API 34)
+    - **getMediaProjection() ahora se llama DENTRO del servicio, NO en la Activity**
+    - El Intent de permisos se pasa al servicio via extras (EXTRA_RESULT_CODE, EXTRA_RESULT_DATA)
+    - Secuencia correcta: startForeground() → getMediaProjection() → callback a Activity
+    - Esto cumple con el requisito de Android 14 de obtener MediaProjection desde el contexto del foreground service
   - PostProcessor con auto-detección de formato (YOLO, RT-DETR, SSD, clasificación, segmentación)
   - NMS real aplicado a todos los formatos de detección
   - Soporte para múltiples detecciones simultáneas

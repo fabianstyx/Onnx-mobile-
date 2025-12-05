@@ -91,6 +91,10 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Recent Changes
 - **2025-12-05**: 
+  - **FIX CRÍTICO**: Corregido crash de MediaProjection en Android 14+ (API 34)
+    - El servicio foreground ahora se inicia ANTES de obtener MediaProjection
+    - Sistema de callback para garantizar que el servicio esté listo
+    - Clonación correcta del Intent de captura
   - PostProcessor con auto-detección de formato (YOLO, RT-DETR, SSD, clasificación, segmentación)
   - NMS real aplicado a todos los formatos de detección
   - Soporte para múltiples detecciones simultáneas
@@ -100,3 +104,4 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
   - OnnxProcessor con validación de tipos FLOAT/DOUBLE
   - ScreenCaptureService para compatibilidad con Android 10+
   - Código sin mocks y con manejo robusto de errores
+  - Eliminado ScreenCaptureManager.kt (código placeholder no usado)

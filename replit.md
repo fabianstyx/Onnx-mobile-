@@ -113,6 +113,16 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
+- **2025-12-05 (v9)**:
+  - **FIX CRÍTICO: Overlays no visibles durante captura**
+    - StatusOverlay refactorizado: Eliminadas condiciones de carrera entre timer interno y actualizaciones externas
+    - Limpieza correcta de layouts: removeExistingLayout() asegura que no queden vistas huérfanas
+    - Actualizaciones centralizadas con updateStats(fps, latency, detections)
+    - Logging de debug agregado para rastrear callbacks y visualización
+    - BboxView mejorado: Maneja correctamente dimensiones de origen faltantes
+    - ResultOverlay con logging de detecciones y posiciones de bbox
+    - Animación de REC correctamente iniciada/detenida con setRecording()
+
 - **2025-12-05 (v8)**:
   - **NUEVAS FUNCIONES: Overlay en Tiempo Real y Auto-Configuración de Modelos**
     - StatusOverlay: Muestra FPS, estado REC, latencia y contador de detecciones durante la captura

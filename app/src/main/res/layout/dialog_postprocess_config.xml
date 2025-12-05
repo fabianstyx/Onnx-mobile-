@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Configuracion Post-Proceso"
+            android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Umbral de Confianza"
+            android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+
+        <TextView
+            android:id="@+id/txtConfidenceValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="25%"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginTop="4dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderConfidence"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:valueFrom="1"
+            android:valueTo="99"
+            android:value="25"
+            android:stepSize="1"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Umbral NMS (IoU)"
+            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+            android:layout_marginTop="16dp" />
+
+        <TextView
+            android:id="@+id/txtNmsValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="45%"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginTop="4dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderNms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:valueFrom="1"
+            android:valueTo="99"
+            android:value="45"
+            android:stepSize="1"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Maximo de Detecciones"
+            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+            android:layout_marginTop="16dp" />
+
+        <TextView
+            android:id="@+id/txtMaxDetValue"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginTop="4dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderMaxDet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:valueFrom="1"
+            android:valueTo="500"
+            android:value="100"
+            android:stepSize="1"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="Clases habilitadas (IDs separados por coma)"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editEnabledClasses"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:hint="Ej: 0, 1, 2, 5 (vacio = todas)" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="Nombres de clases (uno por linea)"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/editClassNames"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:inputType="textMultiLine"
+                android:gravity="top"
+                android:hint="Ej:\npersona\ncarro\nperro" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="24dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnResetConfig"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Restablecer"
+                style="@style/Widget.Material3.Button.OutlinedButton" />
+
+            <Space
+                android:layout_width="8dp"
+                android:layout_height="wrap_content" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSaveConfig"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Guardar"
+                style="@style/Widget.Material3.Button" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

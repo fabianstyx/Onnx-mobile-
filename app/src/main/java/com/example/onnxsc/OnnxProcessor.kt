@@ -372,6 +372,102 @@ object OnnxProcessor {
         return floatArray
     }
 
+    fun processImageWithConfig(
+        context: Context,
+        modelUri: Uri,
+        bitmap: Bitmap,
+        settings: PostProcessingSettings,
+        onLog: (String) -> Unit
+    ): InferenceResult? {
+        val startTime = System.currentTimeMillis()
+        var resized: Bitmap? = null
+        var inputTensor: OnnxTensor? = null
+        var outputs: OrtSession.Result? = null
+
+        return synchronized(lock) {
+            try {
+                if (currentSession == null) {
+                    if (!loadModel(context, modelUri, onLog)) {
+                        return@synchronized null
+                    }
+                }
+
+                val session = currentSession ?: return@synchronized null
+                val name = inputName ?: session.inputNames.iterator().next()
+
+                val (height, width, channels) = getInputDimensions()
+
+                resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+
+                val floatArray = when (inputLayout) {
+                    TensorLayout.NCHW -> bitmapToNCHW(resized!!, channels, height, width)
+                    TensorLayout.NHWC -> bitmapToNHWC(resized!!, channels, height, width)
+                    TensorLayout.UNKNOWN -> bitmapToNCHW(resized!!, channels, height, width)
+                }
+
+                if (resized != bitmap && resized != null) {
+                    resized!!.recycle()
+                    resized = null
+                }
+
+                val shape = when (inputLayout) {
+                    TensorLayout.NCHW -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
+                    TensorLayout.NHWC -> longArrayOf(1, height.toLong(), width.toLong(), channels.toLong())
+                    TensorLayout.UNKNOWN -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
+                }
+
+                val env = getEnvironment()
+                inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
+
+                outputs = session.run(mapOf(name to inputTensor))
+                
+                try { inputTensor?.close() } catch (e: Exception) { }
+                inputTensor = null
+
+                val latencyMs = System.currentTimeMillis() - startTime
+
+                val result = parseOutputWithConfig(
+                    outputs!!, 
+                    bitmap.width, 
+                    bitmap.height, 
+                    width, 
+                    height, 
+                    settings,
+                    onLog
+                )
+                
+                try { outputs?.close() } catch (e: Exception) { }
+                outputs = null
+
+                result?.copy(latencyMs = latencyMs) ?: InferenceResult(
+                    className = "Sin resultado",
+                    probability = 0f,
+                    bbox = null,
+                    rawOutput = floatArrayOf(),
+                    latencyMs = latencyMs
+                )
+            } catch (e: OutOfMemoryError) {
+                onLog("Error: Memoria insuficiente")
+                System.gc()
+                null
+            } catch (e: OrtException) {
+                onLog("Error ONNX: ${e.message}")
+                null
+            } catch (e: Exception) {
+                onLog("Error en inferencia: ${e.message}")
+                null
+            } finally {
+                try { 
+                    if (resized != null && resized != bitmap && !resized!!.isRecycled) {
+                        resized!!.recycle() 
+                    }
+                } catch (e: Exception) { }
+                try { inputTensor?.close() } catch (e: Exception) { }
+                try { outputs?.close() } catch (e: Exception) { }
+            }
+        }
+    }
+
     private fun parseOutput(
         outputs: OrtSession.Result,
         imgWidth: Int,
@@ -629,6 +725,210 @@ object OnnxProcessor {
                 rawOutput = floatArrayOf(),
                 latencyMs = 0,
                 allDetections = detections
+            )
+        } catch (e: Exception) {
+            onLog("Error parseando output: ${e.message}")
+            null
+        }
+    }
+
+    private fun parseOutputWithConfig(
+        outputs: OrtSession.Result,
+        imgWidth: Int,
+        imgHeight: Int,
+        inputWidth: Int,
+        inputHeight: Int,
+        settings: PostProcessingSettings,
+        onLog: (String) -> Unit
+    ): InferenceResult? {
+        return try {
+            if (outputs.size() == 0) {
+                onLog("Error: No hay outputs en el resultado")
+                return null
+            }
+
+            val firstOutput = outputs[0]
+            val outputValue = firstOutput?.value
+            
+            val (rawArray, shape) = when (outputValue) {
+                is OnnxTensor -> {
+                    val info = outputValue.info
+                    val rawData = try {
+                        outputValue.floatBuffer
+                    } catch (e: Exception) {
+                        onLog("Error: No se puede leer tensor como float")
+                        return null
+                    }
+                    val arr = FloatArray(rawData.remaining())
+                    rawData.get(arr)
+                    Pair(arr, info.shape)
+                }
+                is OnnxSequence -> {
+                    val values = outputValue.value as? List<*>
+                    if (values.isNullOrEmpty()) {
+                        onLog("Error: Secuencia vacia")
+                        return null
+                    }
+                    
+                    val firstTensor = values.firstOrNull { it is OnnxTensor } as? OnnxTensor
+                    if (firstTensor != null) {
+                        val tensorShape = firstTensor.info.shape
+                        val allData = mutableListOf<Float>()
+                        var tensorCount = 0
+                        
+                        for (item in values) {
+                            if (item is OnnxTensor) {
+                                try {
+                                    val buf = item.floatBuffer
+                                    val arr = FloatArray(buf.remaining())
+                                    buf.get(arr)
+                                    allData.addAll(arr.toList())
+                                    tensorCount++
+                                } catch (e: Exception) { }
+                            }
+                        }
+                        
+                        if (allData.isEmpty()) {
+                            onLog("Error: No se pudo extraer datos de tensores")
+                            return null
+                        }
+                        
+                        val finalShape = if (tensorCount == 1) {
+                            tensorShape
+                        } else {
+                            val elementsPerTensor = allData.size / tensorCount
+                            when {
+                                tensorShape.size == 3 -> longArrayOf(tensorCount.toLong(), tensorShape[1], tensorShape[2])
+                                tensorShape.size == 2 -> longArrayOf(tensorCount.toLong(), tensorShape[0], tensorShape[1])
+                                else -> longArrayOf(1L, tensorCount.toLong(), elementsPerTensor.toLong())
+                            }
+                        }
+                        Pair(allData.toFloatArray(), finalShape)
+                    } else {
+                        val floats = mutableListOf<Float>()
+                        for (item in values) {
+                            when (item) {
+                                is FloatArray -> floats.addAll(item.toList())
+                                is Number -> floats.add(item.toFloat())
+                                is Map<*, *> -> {
+                                    for ((_, v) in item) {
+                                        when (v) {
+                                            is Float -> floats.add(v)
+                                            is Number -> floats.add(v.toFloat())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (floats.isEmpty()) {
+                            onLog("Error: No se pudo extraer datos de secuencia")
+                            return null
+                        }
+                        Pair(floats.toFloatArray(), longArrayOf(1L, floats.size.toLong()))
+                    }
+                }
+                is OnnxMap -> {
+                    val mapValue = outputValue.value as? Map<*, *>
+                    if (mapValue.isNullOrEmpty()) {
+                        onLog("Error: Mapa vacio")
+                        return null
+                    }
+                    val floats = mutableListOf<Float>()
+                    for ((_, v) in mapValue) {
+                        when (v) {
+                            is Float -> floats.add(v)
+                            is Number -> floats.add(v.toFloat())
+                        }
+                    }
+                    Pair(floats.toFloatArray(), longArrayOf(1L, floats.size.toLong()))
+                }
+                else -> {
+                    if (outputValue != null && isArrayType(outputValue)) {
+                        val flatData = flattenArray(outputValue)
+                        val inferredShape = inferArrayShape(outputValue)
+                        if (flatData.isEmpty()) {
+                            onLog("Error: Array vacio")
+                            return null
+                        }
+                        Pair(flatData, inferredShape)
+                    } else {
+                        onLog("Error: Tipo de output no soportado: ${outputValue?.javaClass?.simpleName ?: "null"}")
+                        return null
+                    }
+                }
+            }
+
+            var secondOutputData: FloatArray? = null
+            var secondOutputShape: LongArray? = null
+            if (outputs.size() >= 2) {
+                try {
+                    val secondValue = outputs[1]?.value
+                    when (secondValue) {
+                        is OnnxTensor -> {
+                            secondOutputShape = secondValue.info.shape
+                            val secondBuffer = secondValue.floatBuffer
+                            secondOutputData = FloatArray(secondBuffer.remaining())
+                            secondBuffer.get(secondOutputData)
+                        }
+                    }
+                } catch (e: Exception) { }
+            }
+
+            val format = PostProcessor.detectOutputFormat(shape, outputs.size())
+
+            val detections = if (format == OutputFormat.SSD && secondOutputData != null) {
+                PostProcessor.processSSDMultiOutput(
+                    boxes = rawArray,
+                    boxesShape = shape,
+                    scores = secondOutputData,
+                    scoresShape = secondOutputShape ?: longArrayOf(),
+                    imgWidth = imgWidth,
+                    imgHeight = imgHeight,
+                    confThreshold = settings.confidenceThreshold,
+                    iouThreshold = settings.nmsThreshold,
+                    classNames = settings.classNames
+                )
+            } else {
+                PostProcessor.processOutput(
+                    data = rawArray,
+                    shape = shape,
+                    format = format,
+                    imgWidth = imgWidth,
+                    imgHeight = imgHeight,
+                    inputWidth = inputWidth,
+                    inputHeight = inputHeight,
+                    confThreshold = settings.confidenceThreshold,
+                    iouThreshold = settings.nmsThreshold,
+                    classNames = settings.classNames
+                )
+            }
+
+            val filteredDetections = if (settings.enabledClasses != null) {
+                detections.filter { it.classId in settings.enabledClasses!! }
+            } else {
+                detections
+            }.take(settings.maxDetections)
+
+            if (filteredDetections.isEmpty()) {
+                return InferenceResult(
+                    className = "Sin deteccion",
+                    probability = 0f,
+                    bbox = null,
+                    rawOutput = floatArrayOf(),
+                    latencyMs = 0,
+                    allDetections = emptyList()
+                )
+            }
+
+            val best = filteredDetections.first()
+
+            InferenceResult(
+                className = best.className,
+                probability = best.confidence,
+                bbox = if (best.bbox.width() > 0 && best.bbox.height() > 0) best.bbox else null,
+                rawOutput = floatArrayOf(),
+                latencyMs = 0,
+                allDetections = filteredDetections
             )
         } catch (e: Exception) {
             onLog("Error parseando output: ${e.message}")

@@ -2,6 +2,7 @@ package com.example.onnxsc
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -12,10 +13,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.view.LayoutInflater
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.onnxsc.databinding.ActivityMainBinding
+import com.example.onnxsc.databinding.DialogPostprocessConfigBinding
+import com.google.android.material.slider.Slider
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -24,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var binding: ActivityMainBinding
     private var modelUri: Uri? = null
     private var lastInspection: ModelInspector.Inspection? = null
+    private var lastDetailedInspection: ModelInspector.DetailedInspection? = null
     private lateinit var modelSwitcher: ModelSwitcher
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -46,7 +52,7 @@ class MainActivity : ComponentActivity() {
                     Logger.warn("No se pudo obtener permiso persistente")
                 }
                 loadNewModel(it)
-            } ?: Logger.info("No se eligió archivo")
+            } ?: Logger.info("No se eligio archivo")
         }
 
     private val captureLauncher =
@@ -76,7 +82,8 @@ class MainActivity : ComponentActivity() {
         setContentView(binding.root)
 
         Logger.init(binding.txtConsole)
-        Logger.info("App iniciada - ONNX Screen v1.0")
+        Logger.info("App iniciada - ONNX Screen v2.0")
+        Logger.info("Nuevas funciones: Info modelo, Config post-proceso")
 
         modelSwitcher = ModelSwitcher(this)
         
@@ -152,6 +159,131 @@ class MainActivity : ComponentActivity() {
                 Logger.warn("No hay captura disponible para guardar")
             }
         }
+
+        binding.btnModelInfo.setOnClickListener {
+            showModelInfoDialog()
+        }
+
+        binding.btnPostProcess.setOnClickListener {
+            showPostProcessConfigDialog()
+        }
+    }
+
+    private fun showModelInfoDialog() {
+        val uri = modelUri
+        if (uri == null) {
+            Logger.warn("Primero selecciona un modelo para ver su informacion")
+            return
+        }
+
+        Logger.info("Inspeccionando modelo...")
+        
+        Thread {
+            val inspection = ModelInspector.inspectDetailed(this, contentResolver, uri)
+            lastDetailedInspection = inspection
+            
+            mainHandler.post {
+                val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_model_info, null)
+                val txtModelInfo = dialogView.findViewById<TextView>(R.id.txtModelInfo)
+                txtModelInfo.text = inspection.toFormattedString()
+
+                AlertDialog.Builder(this)
+                    .setView(dialogView)
+                    .setPositiveButton("Cerrar", null)
+                    .show()
+                    
+                Logger.success("Inspeccion completada")
+            }
+        }.start()
+    }
+
+    private fun showPostProcessConfigDialog() {
+        val dialogBinding = DialogPostprocessConfigBinding.inflate(LayoutInflater.from(this))
+        
+        val currentSettings = PostProcessingConfig.getCurrentSettings()
+        
+        dialogBinding.sliderConfidence.value = (currentSettings.confidenceThreshold * 100).coerceIn(1f, 99f)
+        dialogBinding.txtConfidenceValue.text = "${currentSettings.confidenceThreshold.times(100).toInt()}%"
+        
+        dialogBinding.sliderNms.value = (currentSettings.nmsThreshold * 100).coerceIn(1f, 99f)
+        dialogBinding.txtNmsValue.text = "${currentSettings.nmsThreshold.times(100).toInt()}%"
+        
+        dialogBinding.sliderMaxDet.value = currentSettings.maxDetections.toFloat().coerceIn(1f, 500f)
+        dialogBinding.txtMaxDetValue.text = "${currentSettings.maxDetections}"
+        
+        currentSettings.enabledClasses?.let { classes ->
+            dialogBinding.editEnabledClasses.setText(classes.joinToString(", "))
+        }
+        
+        currentSettings.classNames?.let { names ->
+            dialogBinding.editClassNames.setText(names.joinToString("\n"))
+        }
+        
+        dialogBinding.sliderConfidence.addOnChangeListener { _, value, _ ->
+            dialogBinding.txtConfidenceValue.text = "${value.toInt()}%"
+        }
+        
+        dialogBinding.sliderNms.addOnChangeListener { _, value, _ ->
+            dialogBinding.txtNmsValue.text = "${value.toInt()}%"
+        }
+        
+        dialogBinding.sliderMaxDet.addOnChangeListener { _, value, _ ->
+            dialogBinding.txtMaxDetValue.text = "${value.toInt()}"
+        }
+        
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogBinding.root)
+            .setNegativeButton("Cancelar", null)
+            .create()
+        
+        dialogBinding.btnResetConfig.setOnClickListener {
+            PostProcessingConfig.resetToDefaults()
+            dialog.dismiss()
+            Logger.info("Configuracion restablecida")
+        }
+        
+        dialogBinding.btnSaveConfig.setOnClickListener {
+            val newSettings = PostProcessingSettings(
+                confidenceThreshold = dialogBinding.sliderConfidence.value / 100f,
+                nmsThreshold = dialogBinding.sliderNms.value / 100f,
+                maxDetections = dialogBinding.sliderMaxDet.value.toInt(),
+                enabledClasses = parseEnabledClasses(dialogBinding.editEnabledClasses.text.toString()),
+                classNames = parseClassNames(dialogBinding.editClassNames.text.toString())
+            )
+            
+            PostProcessingConfig.updateSettings(newSettings)
+            
+            modelUri?.lastPathSegment?.let { modelName ->
+                PostProcessingConfig.saveConfig(this, modelName)
+            }
+            
+            dialog.dismiss()
+            Logger.success("Configuracion aplicada")
+            Logger.info(PostProcessingConfig.getConfigSummary())
+        }
+        
+        dialog.show()
+    }
+    
+    private fun parseEnabledClasses(input: String): List<Int>? {
+        if (input.isBlank()) return null
+        return try {
+            input.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .map { it.toInt() }
+                .takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    private fun parseClassNames(input: String): List<String>? {
+        if (input.isBlank()) return null
+        return input.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .takeIf { it.isNotEmpty() }
     }
 
     private fun loadNewModel(uri: Uri) {
@@ -163,6 +295,8 @@ class MainActivity : ComponentActivity() {
 
         ResultOverlay.clear(binding.overlayContainer)
         FpsMeter.reset()
+
+        PostProcessingConfig.loadConfig(this, modelName)
 
         inspectModel(uri)
 
@@ -184,7 +318,7 @@ class MainActivity : ComponentActivity() {
         try {
             lastInspection = contentResolver.let { ModelInspector.inspect(it, uri) }
             lastInspection?.let { ins ->
-                Logger.info("Tamaño: ${ins.sizeKb} KB")
+                Logger.info("Tamano: ${ins.sizeKb} KB")
 
                 DependencyInstaller.checkAndInstall(this, ins) { log -> Logger.info(log) }
 
@@ -210,7 +344,7 @@ class MainActivity : ComponentActivity() {
         }
 
         if (!OnnxProcessor.isModelLoaded()) {
-            Logger.error("El modelo aún no está cargado")
+            Logger.error("El modelo aun no esta cargado")
             return
         }
 
@@ -325,7 +459,14 @@ class MainActivity : ComponentActivity() {
                     return@post
                 }
                 
-                val result = OnnxProcessor.processImage(this, uri, bitmapCopy!!) { log ->
+                val settings = PostProcessingConfig.getCurrentSettings()
+                
+                val result = OnnxProcessor.processImageWithConfig(
+                    this, 
+                    uri, 
+                    bitmapCopy!!, 
+                    settings
+                ) { log ->
                     mainHandler.post { Logger.info(log) }
                 }
                 

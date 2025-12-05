@@ -11,3 +11,7 @@
 [x] 11. Post-Processing Config - Created PostProcessingConfig.kt with JSON save/load, confidence/NMS/maxDetections settings
 [x] 12. Config Editor UI - Added "Config" button and dialog_postprocess_config.xml with sliders and class filters
 [x] 13. OnnxProcessor Updates - Added processImageWithConfig() and parseOutputWithConfig() methods
+[x] 14. Floating Overlay Service - Created FloatingOverlayService.kt for system-wide floating overlays
+[x] 15. System Overlay Permission - Added SYSTEM_ALERT_WINDOW permission to AndroidManifest.xml
+[x] 16. Detection Parcelable - Made Detection class Parcelable for passing between services
+[x] 17. MainActivity Floating Overlay Integration - Updated MainActivity to request overlay permission and use floating overlay for status (FPS, REC, detections) and bounding boxes over other apps

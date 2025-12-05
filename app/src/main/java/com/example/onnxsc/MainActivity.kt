@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -45,6 +46,8 @@ class MainActivity : ComponentActivity() {
 
     private var currentDetectionCount = 0
     private var isShowingStatus = false
+    private var useFloatingOverlay = true
+    private var pendingCaptureAfterOverlayPermission = false
 
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -75,6 +78,24 @@ class MainActivity : ComponentActivity() {
                 Logger.info("Permisos concedidos")
             } else {
                 Logger.warn("Algunos permisos no fueron concedidos")
+            }
+        }
+
+    private val overlayPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
+            if (Settings.canDrawOverlays(this)) {
+                Logger.success("Permiso de overlay concedido")
+                if (pendingCaptureAfterOverlayPermission) {
+                    pendingCaptureAfterOverlayPermission = false
+                    requestScreenCapture()
+                }
+            } else {
+                Logger.warn("Permiso de overlay denegado - usando overlay interno")
+                useFloatingOverlay = false
+                if (pendingCaptureAfterOverlayPermission) {
+                    pendingCaptureAfterOverlayPermission = false
+                    requestScreenCapture()
+                }
             }
         }
 
@@ -390,6 +411,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (useFloatingOverlay && !Settings.canDrawOverlays(this)) {
+            Logger.info("Solicitando permiso para overlay flotante...")
+            pendingCaptureAfterOverlayPermission = true
+            requestOverlayPermission()
+            return
+        }
+
         try {
             val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val intent = mpManager.createScreenCaptureIntent()
@@ -399,11 +427,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestOverlayPermission() {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            overlayPermissionLauncher.launch(intent)
+        } catch (e: Exception) {
+            Logger.error("Error al solicitar permiso de overlay: ${e.message}")
+            useFloatingOverlay = false
+            pendingCaptureAfterOverlayPermission = false
+            requestScreenCapture()
+        }
+    }
+
     private fun startCaptureService(resultCode: Int, data: Intent) {
         Logger.info("Iniciando servicio de captura...")
         
         StatusOverlay.reset()
         ResultOverlay.clear(binding.overlayContainer)
+        
+        if (useFloatingOverlay && Settings.canDrawOverlays(this)) {
+            startFloatingOverlayService()
+        }
         
         ScreenCaptureService.setCallbacks(
             onFrame = { bitmap ->
@@ -418,10 +465,15 @@ class MainActivity : ComponentActivity() {
                 binding.btnCapture.text = "Detener captura"
                 Logger.success("Captura iniciada - Procesando frames...")
                 
-                StatusOverlay.show(binding.overlayContainer)
-                StatusOverlay.setRecording(true)
+                if (useFloatingOverlay && Settings.canDrawOverlays(this)) {
+                    FloatingOverlayService.setRecording(this, true)
+                    Logger.info("[Callback] FloatingOverlayService activo")
+                } else {
+                    StatusOverlay.show(binding.overlayContainer)
+                    StatusOverlay.setRecording(true)
+                    Logger.info("[Callback] StatusOverlay.show() ejecutado")
+                }
                 isShowingStatus = true
-                Logger.info("[Callback] StatusOverlay.show() ejecutado")
             },
             onStopped = {
                 Logger.info("[Callback] onStopped recibido")
@@ -429,8 +481,13 @@ class MainActivity : ComponentActivity() {
                 binding.btnCapture.text = getString(R.string.capture)
                 Logger.info("Captura detenida")
                 
-                StatusOverlay.setRecording(false)
-                StatusOverlay.hide(binding.overlayContainer)
+                if (useFloatingOverlay) {
+                    FloatingOverlayService.setRecording(this, false)
+                    stopFloatingOverlayService()
+                } else {
+                    StatusOverlay.setRecording(false)
+                    StatusOverlay.hide(binding.overlayContainer)
+                }
                 isShowingStatus = false
             }
         )
@@ -460,8 +517,14 @@ class MainActivity : ComponentActivity() {
         
         processingHandler?.removeCallbacksAndMessages(null)
         
-        StatusOverlay.setRecording(false)
-        StatusOverlay.hide(binding.overlayContainer)
+        if (useFloatingOverlay) {
+            FloatingOverlayService.setRecording(this, false)
+            FloatingOverlayService.clearDetections(this)
+            stopFloatingOverlayService()
+        } else {
+            StatusOverlay.setRecording(false)
+            StatusOverlay.hide(binding.overlayContainer)
+        }
         isShowingStatus = false
         
         try {
@@ -474,6 +537,34 @@ class MainActivity : ComponentActivity() {
         }
         
         binding.btnCapture.text = getString(R.string.capture)
+    }
+
+    private fun startFloatingOverlayService() {
+        try {
+            val intent = Intent(this, FloatingOverlayService::class.java).apply {
+                action = FloatingOverlayService.ACTION_START
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Logger.info("Servicio de overlay flotante iniciado")
+        } catch (e: Exception) {
+            Logger.error("Error al iniciar overlay flotante: ${e.message}")
+            useFloatingOverlay = false
+        }
+    }
+
+    private fun stopFloatingOverlayService() {
+        try {
+            val intent = Intent(this, FloatingOverlayService::class.java).apply {
+                action = FloatingOverlayService.ACTION_STOP
+            }
+            startService(intent)
+        } catch (e: Exception) {
+            Logger.error("Error al detener overlay flotante: ${e.message}")
+        }
     }
 
     private fun processFrame(bitmap: Bitmap) {
@@ -547,21 +638,41 @@ class MainActivity : ComponentActivity() {
                             currentDetectionCount = result.allDetections.size
                             val fps = FpsMeter.getCurrentFps()
                             val latency = FpsMeter.getCurrentLatency()
-                            StatusOverlay.updateStats(fps, latency, currentDetectionCount)
                             
-                            ResultOverlay.setSourceDimensions(bitmapWidth, bitmapHeight)
-                            ResultOverlay.clear(binding.overlayContainer)
-                            if (result.allDetections.isNotEmpty()) {
-                                Logger.info("[Frame] ${result.allDetections.size} detecciones, FPS=${"%.1f".format(fps)}, ${bitmapWidth}x${bitmapHeight}")
-                                ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
-                            } else if (result.probability > 0) {
-                                Logger.info("[Frame] Clasificacion: ${result.className} (${result.probability})")
-                                ResultOverlay.show(
-                                    binding.overlayContainer,
-                                    result.className,
-                                    result.probability,
-                                    result.bbox
-                                )
+                            if (useFloatingOverlay && Settings.canDrawOverlays(this)) {
+                                FloatingOverlayService.updateStats(this, fps, latency, currentDetectionCount)
+                                
+                                if (result.allDetections.isNotEmpty()) {
+                                    Logger.info("[Frame] ${result.allDetections.size} detecciones, FPS=${"%.1f".format(fps)}, ${bitmapWidth}x${bitmapHeight}")
+                                    FloatingOverlayService.updateDetections(
+                                        this,
+                                        ArrayList(result.allDetections),
+                                        bitmapWidth,
+                                        bitmapHeight
+                                    )
+                                } else {
+                                    FloatingOverlayService.clearDetections(this)
+                                    if (result.probability > 0) {
+                                        Logger.info("[Frame] Clasificacion: ${result.className} (${result.probability})")
+                                    }
+                                }
+                            } else {
+                                StatusOverlay.updateStats(fps, latency, currentDetectionCount)
+                                
+                                ResultOverlay.setSourceDimensions(bitmapWidth, bitmapHeight)
+                                ResultOverlay.clear(binding.overlayContainer)
+                                if (result.allDetections.isNotEmpty()) {
+                                    Logger.info("[Frame] ${result.allDetections.size} detecciones, FPS=${"%.1f".format(fps)}, ${bitmapWidth}x${bitmapHeight}")
+                                    ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
+                                } else if (result.probability > 0) {
+                                    Logger.info("[Frame] Clasificacion: ${result.className} (${result.probability})")
+                                    ResultOverlay.show(
+                                        binding.overlayContainer,
+                                        result.className,
+                                        result.probability,
+                                        result.bbox
+                                    )
+                                }
                             }
                         } else {
                             safeRecycleBitmap(finalBitmapCopy)

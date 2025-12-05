@@ -1,6 +1,8 @@
 package com.example.onnxsc
 
 import android.graphics.RectF
+import android.os.Parcel
+import android.os.Parcelable
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -10,7 +12,36 @@ data class Detection(
     val className: String,
     val confidence: Float,
     val bbox: RectF
-)
+) : Parcelable {
+    constructor(parcel: Parcel) : this(
+        parcel.readInt(),
+        parcel.readString() ?: "",
+        parcel.readFloat(),
+        RectF(
+            parcel.readFloat(),
+            parcel.readFloat(),
+            parcel.readFloat(),
+            parcel.readFloat()
+        )
+    )
+
+    override fun writeToParcel(parcel: Parcel, flags: Int) {
+        parcel.writeInt(classId)
+        parcel.writeString(className)
+        parcel.writeFloat(confidence)
+        parcel.writeFloat(bbox.left)
+        parcel.writeFloat(bbox.top)
+        parcel.writeFloat(bbox.right)
+        parcel.writeFloat(bbox.bottom)
+    }
+
+    override fun describeContents(): Int = 0
+
+    companion object CREATOR : Parcelable.Creator<Detection> {
+        override fun createFromParcel(parcel: Parcel): Detection = Detection(parcel)
+        override fun newArray(size: Int): Array<Detection?> = arrayOfNulls(size)
+    }
+}
 
 enum class OutputFormat {
     CLASSIFICATION,

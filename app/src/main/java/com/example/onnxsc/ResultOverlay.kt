@@ -3,7 +3,6 @@ package com.example.onnxsc
 import android.graphics.*
 import android.view.View
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import java.text.DecimalFormat
 
 object ResultOverlay {
@@ -12,11 +11,11 @@ object ResultOverlay {
 
     fun show(parent: View, clazz: String, prob: Float, bbox: RectF?) {
         val tv = TextView(parent.context).apply {
-            text = "$clase  ${df.format(prob)}"
+            text = "$clazz  ${df.format(prob)}"
             setTextColor(Color.WHITE)
             textSize = 18f
             setPadding(16, 8, 16, 8)
-            background = GradientDrawable().apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(Color.parseColor("#CC000000"))
                 cornerRadius = 12f
             }

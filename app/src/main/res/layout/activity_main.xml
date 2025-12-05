@@ -182,4 +182,12 @@
 
         </androidx.constraintlayout.widget.ConstraintLayout>
     </androidx.core.widget.NestedScrollView>
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnChangeModel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Cambiar modelo"
+        app:layout_constraintTop_toBottomOf="@id/btnPickModel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        style="@style/Widget.Material3.Button.TonalButton" />

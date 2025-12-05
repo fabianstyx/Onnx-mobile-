@@ -7,7 +7,7 @@ import java.util.*
 object Logger {
 
     private val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    private lateinit var console: TextView
+    lateinit var console: TextView   // <- público para que GallerySaver lo use
 
     fun init(textView: TextView) {
         console = textView

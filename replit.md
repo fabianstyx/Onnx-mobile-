@@ -70,6 +70,8 @@ app/src/main/java/com/example/onnxsc/
 ├── ModelInspector.kt          # Inspección de modelos (metadatos, dependencias)
 ├── ModelSwitcher.kt           # Cambio de modelo en caliente
 ├── ResultOverlay.kt           # Overlay visual de resultados y bbox múltiples
+├── StatusOverlay.kt           # Overlay de estado (FPS, REC, latencia)
+├── FloatingOverlayService.kt  # Servicio de overlay flotante del sistema
 ├── FpsMeter.kt                # Medición de FPS y latencia
 ├── GallerySaver.kt            # Guardar capturas en Pictures/ONNX-SC
 ├── DependencyInstaller.kt     # Verificación de dependencias
@@ -113,6 +115,18 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
+- **2025-12-05 (v10)**:
+  - **NUEVA FUNCIÓN: Overlay Flotante del Sistema (ESP/Bboxes sobre TODAS las apps)**
+    - FloatingOverlayService: Nuevo servicio de primer plano con overlays del sistema
+    - Usa TYPE_APPLICATION_OVERLAY para dibujar encima de todas las aplicaciones
+    - Muestra barra de estado flotante (FPS, REC, latencia, detecciones) visible siempre
+    - Dibuja bounding boxes/ESP sobre la pantalla completa del dispositivo
+    - Detection class hecha Parcelable para pasar datos entre servicios
+    - Flujo de permisos: Solicita SYSTEM_ALERT_WINDOW, fallback a overlay in-app si se deniega
+    - Escalado de coordenadas: Bboxes se escalan correctamente al tamaño de pantalla
+    - Nuevo archivo: FloatingOverlayService.kt
+    - Permisos agregados: SYSTEM_ALERT_WINDOW, FOREGROUND_SERVICE_SPECIAL_USE
+
 - **2025-12-05 (v9)**:
   - **FIX CRÍTICO: Overlays no visibles durante captura**
     - StatusOverlay refactorizado: Eliminadas condiciones de carrera entre timer interno y actualizaciones externas

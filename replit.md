@@ -90,11 +90,13 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
-- **2025-12-05 (v4)**:
-  - **FIX: Soporte para múltiples tipos de output ONNX**
-    - Ahora soporta OnnxTensor, OnnxSequence y OnnxMap como tipos de salida
-    - Preserva las formas (shapes) originales de los tensores cuando están dentro de secuencias
-    - Corrige el error "Output no es un tensor válido" que ocurría con algunos modelos
+- **2025-12-05 (v5)**:
+  - **FIX CRÍTICO: Soporte COMPLETO para todos los tipos de output ONNX**
+    - Ahora soporta OnnxTensor, OnnxSequence, OnnxMap Y arrays de Java directos (float[][][], etc.)
+    - Funciones recursivas para aplanar datos y calcular shapes correctamente
+    - Preserva las formas originales (ej: [1, 25200, 85] para YOLO)
+    - Corrige el error "Tipo de output no soportado: float[][][]"
+  - **v4**: Soporte inicial para OnnxSequence y OnnxMap
   - **FIX: Consola mejorada**
     - Throttling de mensajes duplicados (ventana de 2 segundos)
     - Límite de 100 líneas para evitar saturación de memoria

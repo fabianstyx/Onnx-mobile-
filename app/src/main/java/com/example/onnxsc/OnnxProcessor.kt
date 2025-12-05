@@ -51,6 +51,62 @@ object OnnxProcessor {
     private var inputLayout: TensorLayout = TensorLayout.NCHW
     private val lock = Any()
 
+    private fun flattenArray(arr: Any): FloatArray {
+        val result = mutableListOf<Float>()
+        flattenArrayRecursive(arr, result)
+        return result.toFloatArray()
+    }
+
+    private fun flattenArrayRecursive(arr: Any, result: MutableList<Float>) {
+        when (arr) {
+            is FloatArray -> result.addAll(arr.toList())
+            is DoubleArray -> arr.forEach { result.add(it.toFloat()) }
+            is IntArray -> arr.forEach { result.add(it.toFloat()) }
+            is LongArray -> arr.forEach { result.add(it.toFloat()) }
+            is ByteArray -> arr.forEach { result.add(it.toFloat()) }
+            is ShortArray -> arr.forEach { result.add(it.toFloat()) }
+            is Float -> result.add(arr)
+            is Double -> result.add(arr.toFloat())
+            is Number -> result.add(arr.toFloat())
+            is Array<*> -> {
+                for (item in arr) {
+                    if (item != null) flattenArrayRecursive(item, result)
+                }
+            }
+        }
+    }
+
+    private fun inferArrayShape(arr: Any): LongArray {
+        return inferShapeRecursive(arr)
+    }
+
+    private fun inferShapeRecursive(arr: Any): LongArray {
+        return when (arr) {
+            is FloatArray -> longArrayOf(arr.size.toLong())
+            is DoubleArray -> longArrayOf(arr.size.toLong())
+            is IntArray -> longArrayOf(arr.size.toLong())
+            is LongArray -> longArrayOf(arr.size.toLong())
+            is ByteArray -> longArrayOf(arr.size.toLong())
+            is ShortArray -> longArrayOf(arr.size.toLong())
+            is Array<*> -> {
+                val first = arr.firstOrNull()
+                if (first != null) {
+                    val innerShape = inferShapeRecursive(first)
+                    longArrayOf(arr.size.toLong()) + innerShape
+                } else {
+                    longArrayOf(arr.size.toLong())
+                }
+            }
+            else -> longArrayOf()
+        }
+    }
+
+    private fun isArrayType(obj: Any?): Boolean {
+        return obj is FloatArray || obj is DoubleArray || obj is IntArray ||
+               obj is LongArray || obj is ByteArray || obj is ShortArray ||
+               obj is Array<*>
+    }
+
     private fun getEnvironment(): OrtEnvironment {
         if (ortEnv == null) {
             ortEnv = OrtEnvironment.getEnvironment()
@@ -416,8 +472,18 @@ object OnnxProcessor {
                     Pair(floats.toFloatArray(), longArrayOf(1L, floats.size.toLong()))
                 }
                 else -> {
-                    onLog("Error: Tipo de output no soportado: ${outputValue?.javaClass?.simpleName ?: "null"}")
-                    return null
+                    if (outputValue != null && isArrayType(outputValue)) {
+                        val flatData = flattenArray(outputValue)
+                        val shape = inferArrayShape(outputValue)
+                        if (flatData.isEmpty()) {
+                            onLog("Error: Array vacío")
+                            return null
+                        }
+                        Pair(flatData, shape)
+                    } else {
+                        onLog("Error: Tipo de output no soportado: ${outputValue?.javaClass?.simpleName ?: "null"}")
+                        return null
+                    }
                 }
             }
 
@@ -480,6 +546,12 @@ object OnnxProcessor {
                                         secondOutputShape = longArrayOf(1L, floats.size.toLong())
                                     }
                                 }
+                            }
+                        }
+                        else -> {
+                            if (secondValue != null && isArrayType(secondValue)) {
+                                secondOutputData = flattenArray(secondValue)
+                                secondOutputShape = inferArrayShape(secondValue)
                             }
                         }
                     }

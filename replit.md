@@ -113,6 +113,16 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
+- **2025-12-05 (v8)**:
+  - **NUEVAS FUNCIONES: Overlay en Tiempo Real y Auto-Configuración de Modelos**
+    - StatusOverlay: Muestra FPS, estado REC, latencia y contador de detecciones durante la captura
+    - Escalado correcto de coordenadas bbox: Los bounding boxes ahora se alinean correctamente con la pantalla
+    - Extracción automática de configuración embebida en modelos ONNX (thresholds, nombres de clases)
+    - Mejoras visuales: Líneas más gruesas (6px), contorno negro (10px), sombras en etiquetas
+    - Mayor elevación del overlay container (32dp) para visibilidad garantizada
+    - Nuevos archivos: StatusOverlay.kt, EmbeddedModelConfig (en ModelInspector.kt)
+    - Métodos agregados: ModelInspector.extractEmbeddedConfig(), ResultOverlay.setSourceDimensions()
+
 - **2025-12-05 (v7)**:
   - **NUEVAS FUNCIONES: Información del Modelo y Configuración de Post-Proceso**
     - Botón "Info" para ver metadatos completos del modelo (entradas, salidas, formas, tipos, operadores)

@@ -311,44 +311,179 @@ object OnnxProcessor {
             }
 
             val outputNames = outputs.mapNotNull { it.key }
-            onLog("Outputs (${outputs.size()}): ${outputNames.joinToString(", ")}")
-
-            val firstOutput = outputs[0]
-            val tensor = firstOutput?.value as? OnnxTensor
-            if (tensor == null) {
-                onLog("Error: Output no es un tensor válido")
-                return null
-            }
-
-            val info = tensor.info
-            val shape = info.shape
-
-            onLog("Shape salida[0]: ${shape.contentToString()}")
-
-            val rawData = try {
-                tensor.floatBuffer
-            } catch (e: Exception) {
-                onLog("Error: Output no es float buffer")
-                return null
-            }
             
-            val rawArray = FloatArray(rawData.remaining())
-            rawData.get(rawArray)
+            val firstOutput = outputs[0]
+            val outputValue = firstOutput?.value
+            
+            val (rawArray, shape) = when (outputValue) {
+                is OnnxTensor -> {
+                    val info = outputValue.info
+                    val rawData = try {
+                        outputValue.floatBuffer
+                    } catch (e: Exception) {
+                        onLog("Error: No se puede leer tensor como float")
+                        return null
+                    }
+                    val arr = FloatArray(rawData.remaining())
+                    rawData.get(arr)
+                    Pair(arr, info.shape)
+                }
+                is OnnxSequence -> {
+                    val values = outputValue.value as? List<*>
+                    if (values.isNullOrEmpty()) {
+                        onLog("Error: Secuencia vacía")
+                        return null
+                    }
+                    
+                    val firstTensor = values.firstOrNull { it is OnnxTensor } as? OnnxTensor
+                    if (firstTensor != null) {
+                        val tensorShape = firstTensor.info.shape
+                        val allData = mutableListOf<Float>()
+                        var tensorCount = 0
+                        
+                        for (item in values) {
+                            if (item is OnnxTensor) {
+                                try {
+                                    val buf = item.floatBuffer
+                                    val arr = FloatArray(buf.remaining())
+                                    buf.get(arr)
+                                    allData.addAll(arr.toList())
+                                    tensorCount++
+                                } catch (e: Exception) { }
+                            }
+                        }
+                        
+                        if (allData.isEmpty()) {
+                            onLog("Error: No se pudo extraer datos de tensores")
+                            return null
+                        }
+                        
+                        val finalShape = if (tensorCount == 1) {
+                            tensorShape
+                        } else {
+                            val elementsPerTensor = allData.size / tensorCount
+                            when {
+                                tensorShape.size == 3 -> longArrayOf(tensorCount.toLong(), tensorShape[1], tensorShape[2])
+                                tensorShape.size == 2 -> longArrayOf(tensorCount.toLong(), tensorShape[0], tensorShape[1])
+                                else -> longArrayOf(1L, tensorCount.toLong(), elementsPerTensor.toLong())
+                            }
+                        }
+                        Pair(allData.toFloatArray(), finalShape)
+                    } else {
+                        val floats = mutableListOf<Float>()
+                        for (item in values) {
+                            when (item) {
+                                is FloatArray -> floats.addAll(item.toList())
+                                is Array<*> -> {
+                                    for (subItem in item) {
+                                        when (subItem) {
+                                            is Float -> floats.add(subItem)
+                                            is Number -> floats.add(subItem.toFloat())
+                                        }
+                                    }
+                                }
+                                is Number -> floats.add(item.toFloat())
+                                is Map<*, *> -> {
+                                    for ((_, v) in item) {
+                                        when (v) {
+                                            is Float -> floats.add(v)
+                                            is Number -> floats.add(v.toFloat())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (floats.isEmpty()) {
+                            onLog("Error: No se pudo extraer datos de secuencia")
+                            return null
+                        }
+                        Pair(floats.toFloatArray(), longArrayOf(1L, floats.size.toLong()))
+                    }
+                }
+                is OnnxMap -> {
+                    val mapValue = outputValue.value as? Map<*, *>
+                    if (mapValue.isNullOrEmpty()) {
+                        onLog("Error: Mapa vacío")
+                        return null
+                    }
+                    val floats = mutableListOf<Float>()
+                    for ((_, v) in mapValue) {
+                        when (v) {
+                            is Float -> floats.add(v)
+                            is Number -> floats.add(v.toFloat())
+                        }
+                    }
+                    Pair(floats.toFloatArray(), longArrayOf(1L, floats.size.toLong()))
+                }
+                else -> {
+                    onLog("Error: Tipo de output no soportado: ${outputValue?.javaClass?.simpleName ?: "null"}")
+                    return null
+                }
+            }
 
             var secondOutputData: FloatArray? = null
             var secondOutputShape: LongArray? = null
             if (outputs.size() >= 2) {
                 try {
-                    val secondTensor = outputs[1]?.value as? OnnxTensor
-                    if (secondTensor != null) {
-                        secondOutputShape = secondTensor.info.shape
-                        onLog("Shape salida[1]: ${secondOutputShape.contentToString()}")
-                        val secondBuffer = secondTensor.floatBuffer
-                        secondOutputData = FloatArray(secondBuffer.remaining())
-                        secondBuffer.get(secondOutputData)
+                    val secondValue = outputs[1]?.value
+                    when (secondValue) {
+                        is OnnxTensor -> {
+                            secondOutputShape = secondValue.info.shape
+                            val secondBuffer = secondValue.floatBuffer
+                            secondOutputData = FloatArray(secondBuffer.remaining())
+                            secondBuffer.get(secondOutputData)
+                        }
+                        is OnnxSequence -> {
+                            val values = secondValue.value as? List<*>
+                            if (!values.isNullOrEmpty()) {
+                                val firstTensor = values.firstOrNull { it is OnnxTensor } as? OnnxTensor
+                                if (firstTensor != null) {
+                                    val tensorShape = firstTensor.info.shape
+                                    val allData = mutableListOf<Float>()
+                                    var tensorCount = 0
+                                    
+                                    for (item in values) {
+                                        if (item is OnnxTensor) {
+                                            try {
+                                                val buf = item.floatBuffer
+                                                val arr = FloatArray(buf.remaining())
+                                                buf.get(arr)
+                                                allData.addAll(arr.toList())
+                                                tensorCount++
+                                            } catch (e: Exception) { }
+                                        }
+                                    }
+                                    
+                                    if (allData.isNotEmpty()) {
+                                        secondOutputData = allData.toFloatArray()
+                                        secondOutputShape = if (tensorCount == 1) {
+                                            tensorShape
+                                        } else {
+                                            val elementsPerTensor = allData.size / tensorCount
+                                            when {
+                                                tensorShape.size == 3 -> longArrayOf(tensorCount.toLong(), tensorShape[1], tensorShape[2])
+                                                tensorShape.size == 2 -> longArrayOf(tensorCount.toLong(), tensorShape[0], tensorShape[1])
+                                                else -> longArrayOf(1L, tensorCount.toLong(), elementsPerTensor.toLong())
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    val floats = mutableListOf<Float>()
+                                    values.forEach { item ->
+                                        when (item) {
+                                            is Number -> floats.add(item.toFloat())
+                                            is FloatArray -> floats.addAll(item.toList())
+                                        }
+                                    }
+                                    if (floats.isNotEmpty()) {
+                                        secondOutputData = floats.toFloatArray()
+                                        secondOutputShape = longArrayOf(1L, floats.size.toLong())
+                                    }
+                                }
+                            }
+                        }
                     }
                 } catch (e: Exception) {
-                    onLog("No se pudo leer segundo output: ${e.message}")
                 }
             }
 

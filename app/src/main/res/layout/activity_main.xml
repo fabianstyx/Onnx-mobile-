@@ -180,18 +180,26 @@
                             android:layout_marginBottom="8dp" />
 
                         <ScrollView
+                            android:id="@+id/consoleScrollView"
                             android:layout_width="match_parent"
-                            android:layout_height="200dp">
+                            android:layout_height="250dp"
+                            android:fillViewport="true"
+                            android:nestedScrollingEnabled="true"
+                            android:overScrollMode="always"
+                            android:scrollbars="vertical"
+                            android:fadeScrollbars="false">
 
                             <TextView
                                 android:id="@+id/txtConsole"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:fontFamily="monospace"
-                                android:textSize="12sp"
-                                android:textColor="@android:color/darker_gray"
-                                android:background="#F5F5F5"
-                                android:padding="8dp"
+                                android:textSize="11sp"
+                                android:lineSpacingExtra="2dp"
+                                android:textColor="#333333"
+                                android:background="#F8F8F8"
+                                android:padding="12dp"
+                                android:textIsSelectable="true"
                                 android:text="> Iniciado\n" />
                         </ScrollView>
 

@@ -9,12 +9,23 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Binder
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
+import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class ScreenCaptureService : Service() {
 
@@ -24,18 +35,55 @@ class ScreenCaptureService : Service() {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
         
-        private var mediaProjectionCallback: ((MediaProjection?) -> Unit)? = null
+        const val ACTION_START = "action_start"
+        const val ACTION_STOP = "action_stop"
         
-        fun setMediaProjectionCallback(callback: ((MediaProjection?) -> Unit)?) {
-            mediaProjectionCallback = callback
+        private var frameCallback: ((Bitmap) -> Unit)? = null
+        private var errorCallback: ((String) -> Unit)? = null
+        private var startedCallback: (() -> Unit)? = null
+        private var stoppedCallback: (() -> Unit)? = null
+        
+        fun setCallbacks(
+            onFrame: ((Bitmap) -> Unit)?,
+            onError: ((String) -> Unit)?,
+            onStarted: (() -> Unit)?,
+            onStopped: (() -> Unit)?
+        ) {
+            frameCallback = onFrame
+            errorCallback = onError
+            startedCallback = onStarted
+            stoppedCallback = onStopped
+        }
+        
+        fun clearCallbacks() {
+            frameCallback = null
+            errorCallback = null
+            startedCallback = null
+            stoppedCallback = null
         }
     }
 
-    private val binder = LocalBinder()
     private var mediaProjection: MediaProjection? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var imageReader: ImageReader? = null
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
     
-    inner class LocalBinder : Binder() {
-        fun getService(): ScreenCaptureService = this@ScreenCaptureService
+    private val isCapturing = AtomicBoolean(false)
+    private val lastProcessedTime = AtomicLong(0)
+    private val minFrameInterval = 33L
+    
+    private var screenWidth = 0
+    private var screenHeight = 0
+    private var screenDensity = 0
+
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            mainHandler.post { 
+                stopCapture()
+            }
+        }
     }
 
     override fun onCreate() {
@@ -44,6 +92,19 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopCapture()
+                return START_NOT_STICKY
+            }
+            ACTION_START, null -> {
+                handleStart(intent)
+            }
+        }
+        return START_NOT_STICKY
+    }
+    
+    private fun handleStart(intent: Intent?) {
         val notification = createNotification()
         
         try {
@@ -56,44 +117,246 @@ class ScreenCaptureService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            notifyError("Error iniciando servicio foreground: ${e.message}")
+            stopSelf()
+            return
+        }
+
+        mainHandler.postDelayed({
+            initializeMediaProjection(intent)
+        }, 100)
+    }
+    
+    private fun initializeMediaProjection(intent: Intent?) {
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED) 
+            ?: Activity.RESULT_CANCELED
             
-            val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED) 
-                ?: Activity.RESULT_CANCELED
-            val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                intent?.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        val resultData: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra(EXTRA_RESULT_DATA)
+        }
+        
+        if (resultCode != Activity.RESULT_OK || resultData == null) {
+            notifyError("Datos de permiso inválidos")
+            stopSelf()
+            return
+        }
+        
+        try {
+            val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjection = mpManager.getMediaProjection(resultCode, resultData)
+            
+            if (mediaProjection == null) {
+                notifyError("No se pudo obtener MediaProjection")
+                stopSelf()
+                return
+            }
+            
+            setupCapture()
+            
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+            notifyError("Error de seguridad: ${e.message}")
+            stopSelf()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            notifyError("Error obteniendo MediaProjection: ${e.message}")
+            stopSelf()
+        }
+    }
+    
+    private fun setupCapture() {
+        if (isCapturing.get()) {
+            notifyError("Ya hay una captura en curso")
+            return
+        }
+        
+        val projection = mediaProjection
+        if (projection == null) {
+            notifyError("MediaProjection no disponible")
+            return
+        }
+        
+        try {
+            projection.registerCallback(projectionCallback, mainHandler)
+            
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val metrics = DisplayMetrics()
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = wm.currentWindowMetrics.bounds
+                screenWidth = bounds.width()
+                screenHeight = bounds.height()
+                screenDensity = resources.configuration.densityDpi
             } else {
                 @Suppress("DEPRECATION")
-                intent?.getParcelableExtra(EXTRA_RESULT_DATA)
+                wm.defaultDisplay.getMetrics(metrics)
+                screenWidth = metrics.widthPixels
+                screenHeight = metrics.heightPixels
+                screenDensity = metrics.densityDpi
             }
             
-            if (resultCode == Activity.RESULT_OK && resultData != null) {
-                try {
-                    val mpManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    mediaProjection = mpManager.getMediaProjection(resultCode, resultData)
-                    mediaProjectionCallback?.invoke(mediaProjection)
-                } catch (e: SecurityException) {
-                    e.printStackTrace()
-                    mediaProjectionCallback?.invoke(null)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    mediaProjectionCallback?.invoke(null)
-                }
-            } else {
-                mediaProjectionCallback?.invoke(null)
+            captureThread = HandlerThread("ScreenCapture").apply { start() }
+            captureHandler = Handler(captureThread!!.looper)
+            
+            imageReader = ImageReader.newInstance(
+                screenWidth, 
+                screenHeight, 
+                PixelFormat.RGBA_8888, 
+                2
+            )
+            
+            virtualDisplay = projection.createVirtualDisplay(
+                "OnnxScreenCapture",
+                screenWidth, 
+                screenHeight, 
+                screenDensity,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null, 
+                captureHandler
+            )
+            
+            if (virtualDisplay == null) {
+                notifyError("No se pudo crear VirtualDisplay")
+                cleanup()
+                stopSelf()
+                return
             }
             
-            mediaProjectionCallback = null
+            isCapturing.set(true)
+            setupImageListener()
+            
+            mainHandler.post {
+                startedCallback?.invoke()
+            }
             
         } catch (e: Exception) {
             e.printStackTrace()
-            mediaProjectionCallback?.invoke(null)
-            mediaProjectionCallback = null
+            notifyError("Error configurando captura: ${e.message}")
+            cleanup()
+            stopSelf()
+        }
+    }
+    
+    private fun setupImageListener() {
+        imageReader?.setOnImageAvailableListener({ reader ->
+            if (!isCapturing.get()) return@setOnImageAvailableListener
+            
+            val now = System.currentTimeMillis()
+            if (now - lastProcessedTime.get() < minFrameInterval) {
+                try {
+                    reader.acquireLatestImage()?.close()
+                } catch (e: Exception) { }
+                return@setOnImageAvailableListener
+            }
+            
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: Exception) {
+                null
+            }
+            
+            if (image == null) return@setOnImageAvailableListener
+            
+            try {
+                lastProcessedTime.set(now)
+                
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * screenWidth
+                
+                val bitmapWidth = screenWidth + rowPadding / pixelStride
+                val bitmap = Bitmap.createBitmap(
+                    bitmapWidth,
+                    screenHeight,
+                    Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                image.close()
+                
+                val finalBitmap = if (bitmapWidth > screenWidth) {
+                    Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight).also {
+                        bitmap.recycle()
+                    }
+                } else {
+                    bitmap
+                }
+                
+                mainHandler.post {
+                    frameCallback?.invoke(finalBitmap)
+                }
+                
+            } catch (e: Exception) {
+                try { image.close() } catch (_: Exception) { }
+                mainHandler.post {
+                    errorCallback?.invoke("Error procesando frame: ${e.message}")
+                }
+            }
+        }, captureHandler)
+    }
+    
+    private fun stopCapture() {
+        if (!isCapturing.getAndSet(false)) {
+            stopSelf()
+            return
         }
         
-        return START_NOT_STICKY
+        cleanup()
+        
+        mainHandler.post {
+            stoppedCallback?.invoke()
+        }
+        
+        stopSelf()
+    }
+    
+    private fun cleanup() {
+        try {
+            imageReader?.setOnImageAvailableListener(null, null)
+        } catch (e: Exception) { }
+        
+        try {
+            imageReader?.close()
+        } catch (e: Exception) { }
+        imageReader = null
+        
+        try {
+            virtualDisplay?.release()
+        } catch (e: Exception) { }
+        virtualDisplay = null
+        
+        try {
+            mediaProjection?.unregisterCallback(projectionCallback)
+        } catch (e: Exception) { }
+        
+        try {
+            mediaProjection?.stop()
+        } catch (e: Exception) { }
+        mediaProjection = null
+        
+        try {
+            captureThread?.quitSafely()
+        } catch (e: Exception) { }
+        captureThread = null
+        captureHandler = null
+        
+        isCapturing.set(false)
+    }
+    
+    private fun notifyError(message: String) {
+        mainHandler.post {
+            errorCallback?.invoke(message)
+        }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -121,7 +384,7 @@ class ScreenCaptureService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("ONNX Screen")
-            .setContentText("Captura de pantalla activa")
+            .setContentText("Capturando pantalla...")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -129,15 +392,9 @@ class ScreenCaptureService : Service() {
             .build()
     }
 
-    fun getMediaProjection(): MediaProjection? = mediaProjection
-
     override fun onDestroy() {
-        super.onDestroy()
-        mediaProjectionCallback = null
-        try {
-            mediaProjection?.stop()
-        } catch (e: Exception) { }
-        mediaProjection = null
+        cleanup()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        super.onDestroy()
     }
 }

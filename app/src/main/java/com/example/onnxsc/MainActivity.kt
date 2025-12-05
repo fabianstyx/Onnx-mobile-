@@ -5,24 +5,17 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.media.ImageReader
-import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.onnxsc.databinding.ActivityMainBinding
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : ComponentActivity() {
 
@@ -32,23 +25,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var modelSwitcher: ModelSwitcher
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var mediaProjection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
     private val isCapturing = AtomicBoolean(false)
-    private var captureThread: HandlerThread? = null
-    private var captureHandler: Handler? = null
-
-    private val lastProcessedTime = AtomicLong(0)
-    private val minFrameInterval = 16L
     private var lastCapturedBitmap: Bitmap? = null
     private var lastDetections: List<Detection> = emptyList()
-
-    private val projectionCallback = object : MediaProjection.Callback() {
-        override fun onStop() {
-            mainHandler.post { stopCaptureInternal() }
-        }
-    }
 
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -66,7 +45,7 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                startCaptureWithService(result.resultCode, result.data!!)
+                startCaptureService(result.resultCode, result.data!!)
             } else {
                 Logger.error("Permiso de captura DENEGADO")
             }
@@ -129,7 +108,7 @@ class MainActivity : ComponentActivity() {
         }
 
         binding.btnChangeModel.setOnClickListener {
-            stopCapture()
+            stopCaptureService()
             ResultOverlay.clear(binding.overlayContainer)
             OnnxProcessor.closeSession()
             FpsMeter.reset()
@@ -140,7 +119,7 @@ class MainActivity : ComponentActivity() {
 
         binding.btnCapture.setOnClickListener {
             if (isCapturing.get()) {
-                stopCapture()
+                stopCaptureService()
             } else {
                 requestScreenCapture()
             }
@@ -226,26 +205,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startCaptureWithService(resultCode: Int, data: Intent) {
+    private fun startCaptureService(resultCode: Int, data: Intent) {
         Logger.info("Iniciando servicio de captura...")
         
-        ScreenCaptureService.setMediaProjectionCallback { projection ->
-            mainHandler.post {
-                if (projection != null) {
-                    Logger.info("MediaProjection obtenido correctamente")
-                    mediaProjection = projection
-                    setupScreenCapture()
-                } else {
-                    Logger.error("No se pudo obtener MediaProjection")
-                    try {
-                        stopService(Intent(this, ScreenCaptureService::class.java))
-                    } catch (e: Exception) { }
-                }
+        ScreenCaptureService.setCallbacks(
+            onFrame = { bitmap ->
+                processFrame(bitmap)
+            },
+            onError = { error ->
+                Logger.error(error)
+            },
+            onStarted = {
+                isCapturing.set(true)
+                binding.btnCapture.text = "Detener captura"
+                Logger.success("Captura iniciada - Procesando frames...")
+            },
+            onStopped = {
+                isCapturing.set(false)
+                binding.btnCapture.text = getString(R.string.capture)
+                Logger.info("Captura detenida")
             }
-        }
+        )
         
         try {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_START
                 putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
             }
@@ -257,124 +241,27 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             Logger.error("Error al iniciar servicio: ${e.message}")
-            ScreenCaptureService.setMediaProjectionCallback(null)
+            ScreenCaptureService.clearCallbacks()
         }
     }
-
-    private fun setupScreenCapture() {
-        if (isCapturing.get()) {
-            Logger.warn("Ya hay una captura en curso")
-            return
-        }
-
-        if (mediaProjection == null) {
-            Logger.error("MediaProjection no disponible")
-            return
-        }
-
+    
+    private fun stopCaptureService() {
         try {
-            Logger.info("Configurando captura de pantalla...")
-
-            mediaProjection?.registerCallback(projectionCallback, mainHandler)
-
-            val metrics = resources.displayMetrics
-            val width = metrics.widthPixels
-            val height = metrics.heightPixels
-            val density = metrics.densityDpi
-
-            Logger.info("Resolución: ${width}x${height} @ ${density}dpi")
-
-            captureThread = HandlerThread("ScreenCapture").apply { start() }
-            captureHandler = Handler(captureThread!!.looper)
-
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
-
-            virtualDisplay = mediaProjection?.createVirtualDisplay(
-                "screenCap",
-                width, height, density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface,
-                null, captureHandler
-            )
-
-            if (virtualDisplay == null) {
-                Logger.error("No se pudo crear VirtualDisplay")
-                cleanupCaptureResources()
-                return
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_STOP
             }
-
-            isCapturing.set(true)
-            mainHandler.post {
-                binding.btnCapture.text = "Detener captura"
-            }
-            Logger.success("Captura iniciada - Procesando frames...")
-
-            setupImageListener(width, height)
-
+            startService(serviceIntent)
         } catch (e: Exception) {
-            Logger.error("Error al iniciar captura: ${e.message}")
-            cleanupCaptureResources()
+            Logger.error("Error al detener servicio: ${e.message}")
         }
-    }
-
-    private fun setupImageListener(width: Int, height: Int) {
-        imageReader?.setOnImageAvailableListener({ reader ->
-            if (!isCapturing.get()) return@setOnImageAvailableListener
-
-            val now = System.currentTimeMillis()
-            if (now - lastProcessedTime.get() < minFrameInterval) {
-                try {
-                    reader.acquireLatestImage()?.close()
-                } catch (e: Exception) { }
-                return@setOnImageAvailableListener
-            }
-
-            val image = try {
-                reader.acquireLatestImage()
-            } catch (e: Exception) {
-                null
-            }
-
-            if (image == null) return@setOnImageAvailableListener
-
-            try {
-                lastProcessedTime.set(now)
-
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * width
-
-                val bitmapWidth = width + rowPadding / pixelStride
-                val bitmap = Bitmap.createBitmap(
-                    bitmapWidth,
-                    height,
-                    Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-                image.close()
-
-                val croppedBitmap = if (bitmapWidth > width) {
-                    Bitmap.createBitmap(bitmap, 0, 0, width, height).also {
-                        bitmap.recycle()
-                    }
-                } else {
-                    bitmap
-                }
-
-                processFrame(croppedBitmap)
-
-            } catch (e: Exception) {
-                mainHandler.post { Logger.error("Error procesando frame: ${e.message}") }
-                try { image.close() } catch (_: Exception) { }
-            }
-        }, captureHandler)
+        
+        isCapturing.set(false)
+        binding.btnCapture.text = getString(R.string.capture)
     }
 
     private fun processFrame(bitmap: Bitmap) {
         FpsMeter.tick { fps ->
-            mainHandler.post { Logger.info(fps) }
+            Logger.info(fps)
         }
 
         val uri = modelUri ?: run {
@@ -382,96 +269,37 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val result = OnnxProcessor.processImage(this, uri, bitmap) { log ->
-            mainHandler.post { Logger.info(log) }
-        }
+        Thread {
+            val result = OnnxProcessor.processImage(this, uri, bitmap) { log ->
+                mainHandler.post { Logger.info(log) }
+            }
 
-        mainHandler.post {
-            if (result != null) {
-                Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
+            mainHandler.post {
+                if (result != null) {
+                    Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
 
-                lastCapturedBitmap?.recycle()
-                lastCapturedBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                lastDetections = result.allDetections
+                    lastCapturedBitmap?.recycle()
+                    lastCapturedBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    lastDetections = result.allDetections
 
-                ResultOverlay.clear(binding.overlayContainer)
-                if (result.allDetections.isNotEmpty()) {
-                    ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
-                } else if (result.probability > 0) {
-                    ResultOverlay.show(
-                        binding.overlayContainer,
-                        result.className,
-                        result.probability,
-                        result.bbox
-                    )
+                    ResultOverlay.clear(binding.overlayContainer)
+                    if (result.allDetections.isNotEmpty()) {
+                        ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
+                    } else if (result.probability > 0) {
+                        ResultOverlay.show(
+                            binding.overlayContainer,
+                            result.className,
+                            result.probability,
+                            result.bbox
+                        )
+                    }
+                }
+                
+                if (!bitmap.isRecycled) {
+                    bitmap.recycle()
                 }
             }
-        }
-
-        if (!bitmap.isRecycled) {
-            bitmap.recycle()
-        }
-    }
-
-    private fun stopCapture() {
-        if (!isCapturing.getAndSet(false)) return
-        stopCaptureInternal()
-    }
-
-    private fun stopCaptureInternal() {
-        isCapturing.set(false)
-
-        mainHandler.post {
-            binding.btnCapture.text = getString(R.string.capture)
-        }
-
-        cleanupCaptureResources()
-
-        try {
-            stopService(Intent(this, ScreenCaptureService::class.java))
-        } catch (e: Exception) { }
-
-        Logger.info("Captura detenida")
-    }
-
-    private fun cleanupCaptureResources() {
-        ScreenCaptureService.setMediaProjectionCallback(null)
-        
-        try {
-            imageReader?.setOnImageAvailableListener(null, null)
-        } catch (e: Exception) { }
-
-        try {
-            imageReader?.close()
-        } catch (e: Exception) { }
-        imageReader = null
-
-        try {
-            virtualDisplay?.release()
-        } catch (e: Exception) { }
-        virtualDisplay = null
-
-        try {
-            mediaProjection?.unregisterCallback(projectionCallback)
-        } catch (e: Exception) { }
-
-        try {
-            mediaProjection?.stop()
-        } catch (e: Exception) { }
-        mediaProjection = null
-
-        try {
-            captureThread?.quitSafely()
-        } catch (e: Exception) { }
-        captureThread = null
-        captureHandler = null
-    }
-
-    fun saveCurrentFrame(bitmap: Bitmap) {
-        val filename = "capture_${System.currentTimeMillis()}.png"
-        GallerySaver.save(this, bitmap, filename) { log ->
-            mainHandler.post { Logger.info(log) }
-        }
+        }.start()
     }
 
     private fun saveCaptureWithOverlay() {
@@ -526,7 +354,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopCapture()
+        stopCaptureService()
+        ScreenCaptureService.clearCallbacks()
         lastCapturedBitmap?.recycle()
         lastCapturedBitmap = null
         OnnxProcessor.closeSession()

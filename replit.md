@@ -91,11 +91,13 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Recent Changes
 - **2025-12-05**: 
-  - **FIX CRÍTICO v2**: Corregido crash de MediaProjection en Android 14+ (API 34)
-    - **getMediaProjection() ahora se llama DENTRO del servicio, NO en la Activity**
-    - El Intent de permisos se pasa al servicio via extras (EXTRA_RESULT_CODE, EXTRA_RESULT_DATA)
-    - Secuencia correcta: startForeground() → getMediaProjection() → callback a Activity
-    - Esto cumple con el requisito de Android 14 de obtener MediaProjection desde el contexto del foreground service
+  - **FIX CRÍTICO v3**: Arquitectura completa de captura reescrita para Android 14+
+    - **Todo el procesamiento de MediaProjection ocurre DENTRO del servicio**
+    - ImageReader, VirtualDisplay y captura de frames todo dentro de ScreenCaptureService
+    - Delay de 100ms después de startForeground() antes de getMediaProjection()
+    - Activity solo recibe frames via callbacks estáticos
+    - Secuencia: startForeground() → delay 100ms → getMediaProjection() → createVirtualDisplay()
+    - El Intent de permisos se pasa via extras (EXTRA_RESULT_CODE, EXTRA_RESULT_DATA)
   - PostProcessor con auto-detección de formato (YOLO, RT-DETR, SSD, clasificación, segmentación)
   - NMS real aplicado a todos los formatos de detección
   - Soporte para múltiples detecciones simultáneas

@@ -1,10 +1,7 @@
 package com.example.onnxsc
 
 import android.Manifest
-import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -18,7 +15,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.IBinder
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,7 +37,6 @@ class MainActivity : ComponentActivity() {
     private val isCapturing = AtomicBoolean(false)
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
-    private var pendingCaptureData: Intent? = null
 
     private val lastProcessedTime = AtomicLong(0)
     private val minFrameInterval = 16L
@@ -70,8 +65,22 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                pendingCaptureData = result.data
-                startForegroundServiceAndCapture()
+                
+                val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val captureIntent = result.data!!.clone() as Intent
+                
+                mediaProjection = try {
+                    mpManager.getMediaProjection(RESULT_OK, captureIntent)
+                } catch (e: Exception) {
+                    Logger.error("Error obteniendo MediaProjection: ${e.message}")
+                    null
+                }
+                
+                if (mediaProjection != null) {
+                    startForegroundServiceAndCapture()
+                } else {
+                    Logger.error("No se pudo obtener MediaProjection")
+                }
             } else {
                 Logger.error("Permiso de captura DENEGADO")
             }
@@ -232,6 +241,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startForegroundServiceAndCapture() {
+        if (mediaProjection == null) {
+            Logger.error("MediaProjection no disponible")
+            return
+        }
+        
         try {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -241,32 +255,27 @@ class MainActivity : ComponentActivity() {
             }
             
             mainHandler.postDelayed({
-                pendingCaptureData?.let { startScreenCapture(it) }
-                pendingCaptureData = null
-            }, 200)
+                setupScreenCapture()
+            }, 100)
         } catch (e: Exception) {
             Logger.error("Error al iniciar servicio: ${e.message}")
-            pendingCaptureData?.let { startScreenCapture(it) }
-            pendingCaptureData = null
+            setupScreenCapture()
         }
     }
 
-    private fun startScreenCapture(data: Intent) {
+    private fun setupScreenCapture() {
         if (isCapturing.get()) {
             Logger.warn("Ya hay una captura en curso")
             return
         }
 
+        if (mediaProjection == null) {
+            Logger.error("MediaProjection no disponible")
+            return
+        }
+
         try {
-            Logger.info("Iniciando captura de pantalla...")
-
-            val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = mpManager.getMediaProjection(RESULT_OK, data)
-
-            if (mediaProjection == null) {
-                Logger.error("No se pudo obtener MediaProjection")
-                return
-            }
+            Logger.info("Configurando captura de pantalla...")
 
             mediaProjection?.registerCallback(projectionCallback, mainHandler)
 

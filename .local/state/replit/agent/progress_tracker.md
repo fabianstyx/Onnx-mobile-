@@ -6,3 +6,8 @@
 [x] 6. Reduce console spam - add throttling and duplicate message filtering
 [x] 7. Make console scrollable and text selectable/copyable
 [x] 8. Fix Kotlin smart cast error in ScreenCaptureService.kt - capture mutable bitmap variable in immutable local before closure
+[x] 9. Enhanced Model Inspector - Added inspectDetailed() method to read full ONNX metadata (inputs, outputs, shapes, data types, operators)
+[x] 10. Model Info UI - Added "Info" button and dialog_model_info.xml for displaying model metadata in scrollable dialog
+[x] 11. Post-Processing Config - Created PostProcessingConfig.kt with JSON save/load, confidence/NMS/maxDetections settings
+[x] 12. Config Editor UI - Added "Config" button and dialog_postprocess_config.xml with sliders and class filters
+[x] 13. OnnxProcessor Updates - Added processImageWithConfig() and parseOutputWithConfig() methods

@@ -38,7 +38,24 @@ Sirve para inferencia visual en vivo con cualquier modelo ONNX (clasificación, 
 - Log de carga, FPS, errores y resultados
 - Botón "Limpiar" para vaciar el log
 
-### 7. Compatibilidad Total
+### 7. Información del Modelo (NUEVO)
+- Botón "Info" muestra metadatos completos del modelo ONNX
+- Entradas: nombre, forma, tipo de dato
+- Salidas: nombre, forma, tipo de dato
+- Versión de opset y operadores utilizados
+- Diálogo scrollable con texto seleccionable/copiable
+
+### 8. Configuración de Post-Proceso (NUEVO)
+- Botón "Config" abre editor de configuración
+- **Umbral de Confianza**: Slider 1-99% (default 25%)
+- **Umbral NMS (IoU)**: Slider 1-99% (default 45%)
+- **Máx Detecciones**: Slider 1-500 (default 100)
+- **Clases Habilitadas**: Filtrar por IDs de clase específicos
+- **Nombres de Clases**: Personalizar nombres para cada clase
+- Configuración guardada en JSON por modelo
+- Se aplica en tiempo real durante la captura
+
+### 9. Compatibilidad Total
 - Modelos pre-entrenados: sigue las instrucciones que traiga (ops, inputs, outputs)
 - Modelos sin entrenar: exportar a ONNX y cargarlos
 - Detecta automáticamente si necesita pesos externos u ops personalizadas
@@ -46,19 +63,25 @@ Sirve para inferencia visual en vivo con cualquier modelo ONNX (clasificación, 
 ## Project Structure
 ```
 app/src/main/java/com/example/onnxsc/
-├── MainActivity.kt           # Actividad principal, UI y orquestación
-├── OnnxProcessor.kt          # Carga modelo, inferencia ONNX, parseo de resultados
-├── PostProcessor.kt          # Auto-detección de formato, NMS, decode de bboxes
-├── ModelInspector.kt         # Inspección de modelos (dependencias, tamaño)
-├── ModelSwitcher.kt          # Cambio de modelo en caliente
-├── ResultOverlay.kt          # Overlay visual de resultados y bbox múltiples
-├── FpsMeter.kt               # Medición de FPS y latencia
-├── GallerySaver.kt           # Guardar capturas en Pictures/ONNX-SC
-├── DependencyInstaller.kt    # Verificación de dependencias
-├── ExternalWeightsManager.kt # Manejo de pesos externos
-├── NodeJsManager.kt          # Soporte para ops Node.js/ML
-├── ScreenCaptureService.kt   # Servicio de captura en primer plano
-└── Logger.kt                 # Sistema de logging thread-safe
+├── MainActivity.kt            # Actividad principal, UI y orquestación
+├── OnnxProcessor.kt           # Carga modelo, inferencia ONNX, parseo de resultados
+├── PostProcessor.kt           # Auto-detección de formato, NMS, decode de bboxes
+├── PostProcessingConfig.kt    # Configuración JSON de post-proceso por modelo
+├── ModelInspector.kt          # Inspección de modelos (metadatos, dependencias)
+├── ModelSwitcher.kt           # Cambio de modelo en caliente
+├── ResultOverlay.kt           # Overlay visual de resultados y bbox múltiples
+├── FpsMeter.kt                # Medición de FPS y latencia
+├── GallerySaver.kt            # Guardar capturas en Pictures/ONNX-SC
+├── DependencyInstaller.kt     # Verificación de dependencias
+├── ExternalWeightsManager.kt  # Manejo de pesos externos
+├── NodeJsManager.kt           # Soporte para ops Node.js/ML
+├── ScreenCaptureService.kt    # Servicio de captura en primer plano
+└── Logger.kt                  # Sistema de logging thread-safe
+
+app/src/main/res/layout/
+├── activity_main.xml          # Layout principal con botones Info y Config
+├── dialog_model_info.xml      # Diálogo de información del modelo
+└── dialog_postprocess_config.xml  # Editor de configuración post-proceso
 ```
 
 ## Technical Details
@@ -90,6 +113,16 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
+- **2025-12-05 (v7)**:
+  - **NUEVAS FUNCIONES: Información del Modelo y Configuración de Post-Proceso**
+    - Botón "Info" para ver metadatos completos del modelo (entradas, salidas, formas, tipos, operadores)
+    - Botón "Config" para ajustar parámetros de post-proceso (confianza, NMS, max detecciones)
+    - Filtrado de clases por ID y nombres personalizados
+    - Configuración guardada en JSON por modelo (persistente)
+    - Procesamiento con configuración aplicada en tiempo real
+    - Nuevos archivos: PostProcessingConfig.kt, dialog_model_info.xml, dialog_postprocess_config.xml
+    - Métodos agregados: ModelInspector.inspectDetailed(), OnnxProcessor.processImageWithConfig()
+
 - **2025-12-05 (v6)**:
   - **FIX CRÍTICO: Crash después de 1-2 minutos de captura**
     - Corregido memory leak por acumulación de bitmaps

@@ -31,38 +31,44 @@ The app consists of several key components:
 - `GallerySaver.kt` - Saving captured images
 - `Logger.kt` - Logging utility
 
-## Replit Environment Limitations
-**Important**: This is an Android mobile application that requires:
-- Android SDK and build tools
-- Android emulator or physical device for testing
-- Screen capture permissions (Android-specific)
-- MediaProjection API (Android-specific)
+## Replit Environment Setup
+The project is configured to build in Replit with:
+- **Java**: OpenJDK 17.0.15
+- **Android SDK**: Command-line tools with platform-tools, build-tools 34.0.0, platforms android-34
+- **Gradle**: 8.7 with Kotlin DSL
 
-Replit can:
-- ✅ Build the project using Gradle
-- ✅ Validate code syntax
-- ✅ Manage dependencies
-- ✅ Run unit tests (if added)
+### Environment Variables
+- `ANDROID_HOME`: `/home/runner/android-sdk`
+- `JAVA_HOME`: Set to OpenJDK 17 path
 
-Replit cannot:
-- ❌ Run the app (requires Android emulator/device)
-- ❌ Test screen capture functionality
-- ❌ Test ONNX inference on actual devices
+### Build Workflow
+The "Build Android" workflow compiles the project and generates the APK at:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+## What Replit Can Do
+- Build the project using Gradle
+- Validate code syntax
+- Manage dependencies
+- Generate debug APK
+- Run unit tests (if added)
+
+## What Replit Cannot Do
+- Run the app (requires Android emulator/device)
+- Test screen capture functionality
+- Test ONNX inference on actual devices
 
 ## Build Instructions
-To build this project in Replit:
+The workflow automatically runs:
 ```bash
-./gradlew build
+./gradlew :app:assembleDebug --no-daemon --stacktrace
 ```
 
-To build APK:
+To manually build:
 ```bash
-./gradlew assembleDebug
-```
-
-To run tests:
-```bash
-./gradlew test
+export JAVA_HOME=/nix/store/xad649j61kwkh0id5wvyiab5rliprp4d-openjdk-17.0.15+6
+export ANDROID_HOME=$HOME/android-sdk
+export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+./gradlew :app:assembleDebug --no-daemon
 ```
 
 ## Development Setup
@@ -71,6 +77,13 @@ The project is configured with:
 - Kotlin 1.9.22
 - Java 17 compatibility
 - View binding enabled
+- Gradle memory: 1024MB (optimized for Replit)
 
 ## Recent Changes
-- **2025-12-05**: Imported from GitHub and configured for Replit environment
+- **2025-12-05**: 
+  - Imported from GitHub
+  - Configured Android SDK command-line tools
+  - Installed OpenJDK 17, platform-tools, build-tools 34.0.0, platforms android-34
+  - Created local.properties with SDK path
+  - Optimized Gradle memory settings for Replit environment
+  - Successfully building debug APK

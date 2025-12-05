@@ -3,10 +3,17 @@ package com.example.onnxsc
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import java.io.File
 
 object ExternalWeightsManager {
+
+    private val EXTERNAL_DATA_PATTERNS = listOf(
+        Regex("location\"?\\s*:\\s*\"([^\"]+\\.bin)\""),
+        Regex("location\"?\\s*:\\s*\"([^\"]+\\.data)\""),
+        Regex("external_data.*?\"([^\"]+\\.bin)\""),
+        Regex("external_data.*?\"([^\"]+\\.data)\"")
+    )
 
     fun copyExternalWeights(
         context: Context,
@@ -15,81 +22,139 @@ object ExternalWeightsManager {
         onLog: (String) -> Unit
     ): Boolean {
         return try {
-            onLog("Buscando pesos externos...")
-            
-            val modelDir = File(context.filesDir, "models").apply { 
-                if (!exists()) mkdirs() 
+            onLog("Analizando pesos externos...")
+
+            val modelDir = File(context.filesDir, "models").apply {
+                if (!exists()) mkdirs()
             }
 
-            val parentUri = getParentUri(modelUri)
-            if (parentUri == null) {
-                onLog("No se pudo determinar el directorio del modelo")
+            val modelBytes = contentResolver.openInputStream(modelUri)?.use { 
+                it.readBytes() 
+            } ?: run {
+                onLog("Error: No se pudo leer el modelo")
                 return false
             }
 
-            val modelFileName = modelUri.lastPathSegment?.substringAfterLast("/") ?: "model"
-            val baseName = modelFileName.removeSuffix(".onnx")
+            val headerSection = modelBytes.take(16384).toByteArray()
+            val headerText = try {
+                String(headerSection, Charsets.UTF_8)
+            } catch (e: Exception) { "" }
 
-            val possibleWeightFiles = listOf(
-                "${baseName}.bin",
-                "${baseName}_data",
-                "${baseName}.data",
-                "weights.bin",
-                "external_data.bin"
-            )
-
-            var weightsCopied = 0
-            for (weightFile in possibleWeightFiles) {
-                try {
-                    val weightsPath = parentUri.toString().replace(modelFileName, weightFile)
-                    val weightsUri = Uri.parse(weightsPath)
-                    
-                    contentResolver.openInputStream(weightsUri)?.use { input ->
-                        val destFile = File(modelDir, weightFile)
-                        destFile.outputStream().use { out ->
-                            input.copyTo(out)
-                        }
-                        onLog("Copiado: $weightFile (${destFile.length() / 1024} KB)")
-                        weightsCopied++
+            val externalFiles = mutableSetOf<String>()
+            for (pattern in EXTERNAL_DATA_PATTERNS) {
+                pattern.findAll(headerText).forEach { match ->
+                    match.groupValues.getOrNull(1)?.let { fileName ->
+                        externalFiles.add(fileName)
                     }
-                } catch (e: Exception) {
-                    // El archivo no existe, continuar buscando
                 }
             }
 
-            if (weightsCopied == 0) {
-                onLog("No se encontraron archivos de pesos externos")
-                
-                val weightsFile = File(modelDir, "external_weights.bin")
-                contentResolver.openInputStream(modelUri)?.use { input ->
-                    weightsFile.outputStream().use { out -> input.copyTo(out) }
-                }
-                onLog("Modelo copiado como respaldo a ${weightsFile.name}")
+            if (externalFiles.isEmpty()) {
+                onLog("No se detectaron referencias a pesos externos en el modelo")
+                return searchAndCopyWeightFiles(context, contentResolver, modelUri, modelDir, onLog)
             }
 
-            onLog("Directorio de modelos: ${modelDir.absolutePath}")
-            true
-        } catch (e: SecurityException) {
-            onLog("Error de permisos: ${e.message}")
-            false
+            onLog("Archivos externos detectados: ${externalFiles.joinToString(", ")}")
+
+            val modelFileName = getFileName(contentResolver, modelUri)
+            val modelParentPath = modelUri.toString().substringBeforeLast("/")
+
+            var copiedCount = 0
+            for (externalFile in externalFiles) {
+                val success = tryToCopyWeightFile(
+                    contentResolver, 
+                    modelParentPath, 
+                    externalFile, 
+                    modelDir, 
+                    onLog
+                )
+                if (success) copiedCount++
+            }
+
+            if (copiedCount > 0) {
+                onLog("Copiados $copiedCount archivos de pesos externos")
+                true
+            } else {
+                onLog("No se pudieron copiar los archivos de pesos")
+                onLog("Nota: Coloca los archivos .bin/.data junto al modelo")
+                false
+            }
+
         } catch (e: Exception) {
-            onLog("Error al copiar pesos: ${e.message}")
+            onLog("Error al procesar pesos externos: ${e.message}")
             false
         }
     }
 
-    private fun getParentUri(uri: Uri): Uri? {
+    private fun searchAndCopyWeightFiles(
+        context: Context,
+        contentResolver: ContentResolver,
+        modelUri: Uri,
+        modelDir: File,
+        onLog: (String) -> Unit
+    ): Boolean {
+        val modelFileName = getFileName(contentResolver, modelUri)
+        val baseName = modelFileName.removeSuffix(".onnx")
+        val modelParentPath = modelUri.toString().substringBeforeLast("/")
+
+        val possibleFiles = listOf(
+            "$baseName.bin",
+            "${baseName}_data",
+            "${baseName}.data",
+            "${baseName}_weights.bin",
+            "model.bin",
+            "weights.bin"
+        )
+
+        var foundAny = false
+        for (fileName in possibleFiles) {
+            val success = tryToCopyWeightFile(contentResolver, modelParentPath, fileName, modelDir, onLog)
+            if (success) foundAny = true
+        }
+
+        return foundAny
+    }
+
+    private fun tryToCopyWeightFile(
+        contentResolver: ContentResolver,
+        parentPath: String,
+        fileName: String,
+        destDir: File,
+        onLog: (String) -> Unit
+    ): Boolean {
         return try {
-            val path = uri.toString()
-            val lastSlash = path.lastIndexOf("/")
-            if (lastSlash > 0) {
-                Uri.parse(path.substring(0, lastSlash))
-            } else {
-                null
+            val weightsUriStr = "$parentPath/$fileName"
+            val weightsUri = Uri.parse(weightsUriStr)
+            
+            contentResolver.openInputStream(weightsUri)?.use { input ->
+                val destFile = File(destDir, fileName)
+                destFile.outputStream().use { out ->
+                    input.copyTo(out)
+                }
+                val sizeKb = destFile.length() / 1024
+                onLog("Copiado: $fileName ($sizeKb KB)")
+                true
+            } ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun getFileName(contentResolver: ContentResolver, uri: Uri): String {
+        var name = "model.onnx"
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0) {
+                        name = cursor.getString(nameIndex) ?: name
+                    }
+                }
             }
         } catch (e: Exception) {
-            null
+            name = uri.lastPathSegment?.substringAfterLast("/") ?: name
         }
+        return name
     }
 
     fun getExternalWeightsDir(context: Context): File {

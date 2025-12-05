@@ -103,8 +103,17 @@ object OnnxProcessor {
 
                 val tensorInfo = nodeInfo as TensorInfo
                 
-                if (tensorInfo.type != OnnxJavaType.FLOAT) {
-                    onLog("Advertencia: Input no es float (${tensorInfo.type}), puede fallar")
+                val supportedTypes = listOf(OnnxJavaType.FLOAT, OnnxJavaType.DOUBLE)
+                if (tensorInfo.type !in supportedTypes) {
+                    onLog("Error: Tipo de input no soportado: ${tensorInfo.type}")
+                    onLog("   Solo se soportan modelos con inputs FLOAT o DOUBLE")
+                    onLog("   Considera convertir el modelo a float32")
+                    closeSessionInternal()
+                    return@synchronized false
+                }
+                
+                if (tensorInfo.type == OnnxJavaType.DOUBLE) {
+                    onLog("Nota: El modelo usa DOUBLE, se convertirá desde float")
                 }
 
                 inputShape = tensorInfo.shape

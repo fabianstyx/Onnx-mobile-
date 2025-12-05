@@ -2,35 +2,39 @@ package com.example.onnxsc
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.OpenableColumns
 
 object ModelInspector {
 
     fun inspect(contentResolver: ContentResolver, uri: Uri): Inspection {
-        val inputStream = contentResolver.openInputStream(uri)
-        if (inputStream == null) {
-            return Inspection(false, false, false, 0)
-        }
+        // Nombre humano
+        val name = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            cursor.moveToFirst()
+            cursor.getString(nameIndex)
+        } ?: uri.lastPathSegment ?: "unknown"
 
-        val bytes = inputStream.use { it.readBytes().take(4096).toByteArray() }
-        // Convertir a String usando UTF-8
-        val header = try {
-            String(bytes, Charsets.UTF_8)
-        } catch (e: Exception) {
-            ""
-        }
+        // Header
+        val header = contentResolver.openInputStream(uri)?.use { it.readBytes().take(4096).decodeToString() } ?: ""
 
-        val fileDescriptor = contentResolver.openFileDescriptor(uri, "r")
-        val sizeKb = (fileDescriptor?.statSize ?: 0) / 1024
+        // Tamaño
+        val size = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            cursor.moveToFirst()
+            cursor.getLong(sizeIndex)
+        } ?: 0
 
         return Inspection(
-            hasJsOperators = header.contains("com.microsoft.contrib"),
-            hasNodeOps = header.contains("ai.onnx.contrib") || header.contains("ai.onnx.ml"),
-            hasExternalWeights = header.contains("external_data"),
-            sizeKb = sizeKb
+            name = name,
+            hasJsOperators = "com.microsoft.contrib" in header,
+            hasNodeOps = "ai.onnx.contrib" in header || "ai.onnx.ml" in header,
+            hasExternalWeights = "external_data" in header,
+            sizeKb = size / 1024
         )
     }
 
     data class Inspection(
+        val name: String,
         val hasJsOperators: Boolean,
         val hasNodeOps: Boolean,
         val hasExternalWeights: Boolean,

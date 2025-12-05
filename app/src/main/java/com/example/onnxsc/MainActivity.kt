@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
 
     private val lastProcessedTime = AtomicLong(0)
     private val minFrameInterval = 16L
+    private var lastCapturedBitmap: Bitmap? = null
+    private var lastDetections: List<Detection> = emptyList()
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -150,6 +152,14 @@ class MainActivity : ComponentActivity() {
         }
 
         binding.btnClearConsole.setOnClickListener { Logger.clear() }
+
+        binding.btnSaveCapture.setOnClickListener {
+            if (lastCapturedBitmap != null) {
+                saveCaptureWithOverlay()
+            } else {
+                Logger.warn("No hay captura disponible para guardar")
+            }
+        }
     }
 
     private fun loadNewModel(uri: Uri) {
@@ -373,13 +383,21 @@ class MainActivity : ComponentActivity() {
             if (result != null) {
                 Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
 
+                lastCapturedBitmap?.recycle()
+                lastCapturedBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                lastDetections = result.allDetections
+
                 ResultOverlay.clear(binding.overlayContainer)
-                ResultOverlay.show(
-                    binding.overlayContainer,
-                    result.className,
-                    result.probability,
-                    result.bbox
-                )
+                if (result.allDetections.isNotEmpty()) {
+                    ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
+                } else if (result.probability > 0) {
+                    ResultOverlay.show(
+                        binding.overlayContainer,
+                        result.className,
+                        result.probability,
+                        result.bbox
+                    )
+                }
             }
         }
 
@@ -447,9 +465,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun saveCaptureWithOverlay() {
+        val bitmap = lastCapturedBitmap ?: run {
+            Logger.warn("No hay frame para guardar")
+            return
+        }
+
+        Thread {
+            try {
+                val overlayBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val canvas = android.graphics.Canvas(overlayBitmap)
+                val paint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.GREEN
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeWidth = 4f
+                    isAntiAlias = true
+                }
+                val textPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.WHITE
+                    textSize = 32f
+                    isAntiAlias = true
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+                }
+
+                for (det in lastDetections) {
+                    if (det.bbox.width() > 0 && det.bbox.height() > 0) {
+                        canvas.drawRect(det.bbox, paint)
+                        val label = "${det.className} ${(det.confidence * 100).toInt()}%"
+                        canvas.drawText(label, det.bbox.left + 8, det.bbox.top - 8, textPaint)
+                    }
+                }
+
+                if (lastDetections.isEmpty()) {
+                    val infoText = "ONNX Screen - Sin detecciones"
+                    canvas.drawText(infoText, 20f, 50f, textPaint)
+                }
+
+                val filename = "onnx_capture_${System.currentTimeMillis()}.png"
+                GallerySaver.save(this, overlayBitmap, filename) { log ->
+                    mainHandler.post { 
+                        Logger.success(log)
+                        overlayBitmap.recycle()
+                    }
+                }
+            } catch (e: Exception) {
+                mainHandler.post { Logger.error("Error al guardar: ${e.message}") }
+            }
+        }.start()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         stopCapture()
+        lastCapturedBitmap?.recycle()
+        lastCapturedBitmap = null
         OnnxProcessor.closeSession()
     }
 }

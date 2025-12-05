@@ -13,7 +13,8 @@ data class InferenceResult(
     val probability: Float,
     val bbox: RectF?,
     val rawOutput: FloatArray,
-    val latencyMs: Long
+    val latencyMs: Long,
+    val allDetections: List<Detection> = emptyList()
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -23,7 +24,8 @@ data class InferenceResult(
                 probability == other.probability &&
                 bbox == other.bbox &&
                 rawOutput.contentEquals(other.rawOutput) &&
-                latencyMs == other.latencyMs
+                latencyMs == other.latencyMs &&
+                allDetections == other.allDetections
     }
 
     override fun hashCode(): Int {
@@ -32,6 +34,7 @@ data class InferenceResult(
         result = 31 * result + (bbox?.hashCode() ?: 0)
         result = 31 * result + rawOutput.contentHashCode()
         result = 31 * result + latencyMs.hashCode()
+        result = 31 * result + allDetections.hashCode()
         return result
     }
 }
@@ -202,7 +205,7 @@ object OnnxProcessor {
 
                 val latencyMs = System.currentTimeMillis() - startTime
 
-                val result = parseOutput(outputs, bitmap.width, bitmap.height, onLog)
+                val result = parseOutput(outputs, bitmap.width, bitmap.height, width, height, onLog)
                 outputs.close()
 
                 result?.copy(latencyMs = latencyMs) ?: InferenceResult(
@@ -297,6 +300,8 @@ object OnnxProcessor {
         outputs: OrtSession.Result,
         imgWidth: Int,
         imgHeight: Int,
+        inputWidth: Int,
+        inputHeight: Int,
         onLog: (String) -> Unit
     ): InferenceResult? {
         return try {
@@ -306,7 +311,7 @@ object OnnxProcessor {
             }
 
             val outputNames = outputs.mapNotNull { it.key }
-            onLog("Outputs: ${outputNames.joinToString(", ")}")
+            onLog("Outputs (${outputs.size()}): ${outputNames.joinToString(", ")}")
 
             val firstOutput = outputs[0]
             val tensor = firstOutput?.value as? OnnxTensor
@@ -318,7 +323,7 @@ object OnnxProcessor {
             val info = tensor.info
             val shape = info.shape
 
-            onLog("Shape salida: ${shape.contentToString()}")
+            onLog("Shape salida[0]: ${shape.contentToString()}")
 
             val rawData = try {
                 tensor.floatBuffer
@@ -330,147 +335,78 @@ object OnnxProcessor {
             val rawArray = FloatArray(rawData.remaining())
             rawData.get(rawArray)
 
-            if (shape.size == 2 && shape[0] == 1L) {
-                return parseClassification(rawArray, shape, onLog)
-            }
-
-            if (shape.size >= 3) {
-                val detections = parseDetections(rawArray, shape, imgWidth, imgHeight, onLog)
-                if (detections != null) {
-                    return detections
+            var secondOutputData: FloatArray? = null
+            var secondOutputShape: LongArray? = null
+            if (outputs.size() >= 2) {
+                try {
+                    val secondTensor = outputs[1]?.value as? OnnxTensor
+                    if (secondTensor != null) {
+                        secondOutputShape = secondTensor.info.shape
+                        onLog("Shape salida[1]: ${secondOutputShape.contentToString()}")
+                        val secondBuffer = secondTensor.floatBuffer
+                        secondOutputData = FloatArray(secondBuffer.remaining())
+                        secondBuffer.get(secondOutputData)
+                    }
+                } catch (e: Exception) {
+                    onLog("No se pudo leer segundo output: ${e.message}")
                 }
             }
 
-            if (shape.size == 4) {
-                return parseSegmentation(rawArray, shape, onLog)
+            val format = PostProcessor.detectOutputFormat(shape, outputs.size())
+            onLog("Formato detectado: $format")
+
+            val detections = if (format == OutputFormat.SSD && secondOutputData != null) {
+                PostProcessor.processSSDMultiOutput(
+                    boxes = rawArray,
+                    boxesShape = shape,
+                    scores = secondOutputData,
+                    scoresShape = secondOutputShape ?: longArrayOf(),
+                    imgWidth = imgWidth,
+                    imgHeight = imgHeight
+                )
+            } else {
+                PostProcessor.processOutput(
+                    data = rawArray,
+                    shape = shape,
+                    format = format,
+                    imgWidth = imgWidth,
+                    imgHeight = imgHeight,
+                    inputWidth = inputWidth,
+                    inputHeight = inputHeight,
+                    classNames = null
+                )
+            }
+
+            if (detections.isEmpty()) {
+                onLog("Sin detecciones con confianza suficiente")
+                return InferenceResult(
+                    className = "Sin detección",
+                    probability = 0f,
+                    bbox = null,
+                    rawOutput = floatArrayOf(),
+                    latencyMs = 0,
+                    allDetections = emptyList()
+                )
+            }
+
+            val best = detections.first()
+            onLog("${format.name}: ${best.className} (${(best.confidence * 100).toInt()}%)")
+            if (detections.size > 1) {
+                onLog("Total detecciones: ${detections.size}")
             }
 
             InferenceResult(
-                className = "Raw (${rawArray.size} vals)",
-                probability = rawArray.maxOrNull() ?: 0f,
-                bbox = null,
-                rawOutput = rawArray.take(50).toFloatArray(),
-                latencyMs = 0
+                className = best.className,
+                probability = best.confidence,
+                bbox = if (best.bbox.width() > 0 && best.bbox.height() > 0) best.bbox else null,
+                rawOutput = floatArrayOf(),
+                latencyMs = 0,
+                allDetections = detections
             )
         } catch (e: Exception) {
             onLog("Error parseando output: ${e.message}")
             null
         }
-    }
-
-    private fun parseClassification(
-        rawArray: FloatArray,
-        shape: LongArray,
-        onLog: (String) -> Unit
-    ): InferenceResult {
-        val numClasses = shape[1].toInt()
-        val maxIdx = rawArray.indices.maxByOrNull { rawArray[it] } ?: 0
-        val probabilities = softmax(rawArray)
-        val maxProb = probabilities.getOrElse(maxIdx) { 0f }
-
-        onLog("Clasificación: clase $maxIdx de $numClasses (${(maxProb * 100).toInt()}%)")
-
-        return InferenceResult(
-            className = "Clase $maxIdx",
-            probability = maxProb,
-            bbox = null,
-            rawOutput = probabilities,
-            latencyMs = 0
-        )
-    }
-
-    private fun parseSegmentation(
-        rawArray: FloatArray,
-        shape: LongArray,
-        onLog: (String) -> Unit
-    ): InferenceResult {
-        val numClasses = shape[1].toInt()
-        onLog("Segmentación: $numClasses clases")
-
-        return InferenceResult(
-            className = "Segmentación ($numClasses clases)",
-            probability = 1f,
-            bbox = null,
-            rawOutput = floatArrayOf(),
-            latencyMs = 0
-        )
-    }
-
-    private fun parseDetections(
-        data: FloatArray,
-        shape: LongArray,
-        imgWidth: Int,
-        imgHeight: Int,
-        onLog: (String) -> Unit
-    ): InferenceResult? {
-        return try {
-            if (shape.size == 3 && shape[2] >= 5) {
-                val numDetections = shape[1].toInt()
-                val numFields = shape[2].toInt()
-
-                var bestIdx = -1
-                var bestConf = 0f
-
-                for (i in 0 until numDetections) {
-                    val baseIdx = i * numFields
-                    if (baseIdx + 4 >= data.size) break
-
-                    val conf = if (numFields > 4) data[baseIdx + 4] else 0f
-                    if (conf > bestConf && conf > 0.25f) {
-                        bestConf = conf
-                        bestIdx = i
-                    }
-                }
-
-                if (bestIdx >= 0) {
-                    val baseIdx = bestIdx * numFields
-                    val cx = data[baseIdx] * imgWidth
-                    val cy = data[baseIdx + 1] * imgHeight
-                    val w = data[baseIdx + 2] * imgWidth
-                    val h = data[baseIdx + 3] * imgHeight
-
-                    val bbox = RectF(
-                        (cx - w / 2).coerceIn(0f, imgWidth.toFloat()),
-                        (cy - h / 2).coerceIn(0f, imgHeight.toFloat()),
-                        (cx + w / 2).coerceIn(0f, imgWidth.toFloat()),
-                        (cy + h / 2).coerceIn(0f, imgHeight.toFloat())
-                    )
-
-                    var classIdx = 0
-                    if (numFields > 5) {
-                        var maxClassProb = 0f
-                        for (c in 5 until numFields) {
-                            if (baseIdx + c < data.size && data[baseIdx + c] > maxClassProb) {
-                                maxClassProb = data[baseIdx + c]
-                                classIdx = c - 5
-                            }
-                        }
-                    }
-
-                    onLog("Detección: clase $classIdx, conf ${(bestConf * 100).toInt()}%")
-
-                    return InferenceResult(
-                        className = "Clase $classIdx",
-                        probability = bestConf,
-                        bbox = bbox,
-                        rawOutput = floatArrayOf(),
-                        latencyMs = 0
-                    )
-                }
-            }
-            null
-        } catch (e: Exception) {
-            onLog("Error en detecciones: ${e.message}")
-            null
-        }
-    }
-
-    private fun softmax(input: FloatArray): FloatArray {
-        if (input.isEmpty()) return floatArrayOf()
-        val max = input.maxOrNull() ?: 0f
-        val exps = input.map { kotlin.math.exp((it - max).toDouble()).toFloat() }
-        val sum = exps.sum()
-        return if (sum > 0) exps.map { it / sum }.toFloatArray() else input
     }
 
     fun closeSession() {

@@ -1,7 +1,10 @@
 package com.example.onnxsc
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -15,11 +18,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.IBinder
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.onnxsc.databinding.ActivityMainBinding
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class MainActivity : ComponentActivity() {
 
@@ -32,9 +38,19 @@ class MainActivity : ComponentActivity() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private var isCapturing = false
+    private val isCapturing = AtomicBoolean(false)
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
+    private var pendingCaptureData: Intent? = null
+
+    private val lastProcessedTime = AtomicLong(0)
+    private val minFrameInterval = 16L
+
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            mainHandler.post { stopCaptureInternal() }
+        }
+    }
 
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -52,7 +68,8 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                startScreenCapture(result.data!!)
+                pendingCaptureData = result.data
+                startForegroundServiceAndCapture()
             } else {
                 Logger.error("Permiso de captura DENEGADO")
             }
@@ -73,26 +90,37 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
+
         Logger.init(binding.txtConsole)
         Logger.info("App iniciada - ONNX Screen v1.0")
-        
+
         modelSwitcher = ModelSwitcher(this)
 
-        checkPermissions()
+        checkAndRequestPermissions()
         setupButtons()
     }
 
-    private fun checkPermissions() {
+    private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
-        
+
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             }
         }
-        
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         if (permissions.isNotEmpty()) {
             permissionLauncher.launch(permissions.toTypedArray())
         }
@@ -113,14 +141,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        binding.btnCapture.setOnClickListener { 
-            if (isCapturing) {
+        binding.btnCapture.setOnClickListener {
+            if (isCapturing.get()) {
                 stopCapture()
             } else {
                 requestScreenCapture()
             }
         }
-        
+
         binding.btnClearConsole.setOnClickListener { Logger.clear() }
     }
 
@@ -155,17 +183,17 @@ class MainActivity : ComponentActivity() {
             lastInspection = contentResolver.let { ModelInspector.inspect(it, uri) }
             lastInspection?.let { ins ->
                 Logger.info("Tamaño: ${ins.sizeKb} KB")
-                
+
                 DependencyInstaller.checkAndInstall(this, ins) { log -> Logger.info(log) }
-                
+
                 if (ins.hasExternalWeights) {
-                    ExternalWeightsManager.copyExternalWeights(this, contentResolver, uri) { log -> 
-                        Logger.info(log) 
+                    ExternalWeightsManager.copyExternalWeights(this, contentResolver, uri) { log ->
+                        Logger.info(log)
                     }
                 }
-                
+
                 if (ins.hasJsOperators || ins.hasNodeOps) {
-                    NodeJsManager.ensureNodeJsInstalled(this) { log -> Logger.info(log) }
+                    Logger.warn("Operadores especiales detectados - pueden no estar soportados")
                 }
             }
         } catch (e: Exception) {
@@ -178,12 +206,12 @@ class MainActivity : ComponentActivity() {
             Logger.error("Primero selecciona un modelo ONNX")
             return
         }
-        
+
         if (!OnnxProcessor.isModelLoaded()) {
             Logger.error("El modelo aún no está cargado")
             return
         }
-        
+
         try {
             val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val intent = mpManager.createScreenCaptureIntent()
@@ -193,17 +221,44 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startForegroundServiceAndCapture() {
+        try {
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            
+            mainHandler.postDelayed({
+                pendingCaptureData?.let { startScreenCapture(it) }
+                pendingCaptureData = null
+            }, 200)
+        } catch (e: Exception) {
+            Logger.error("Error al iniciar servicio: ${e.message}")
+            pendingCaptureData?.let { startScreenCapture(it) }
+            pendingCaptureData = null
+        }
+    }
+
     private fun startScreenCapture(data: Intent) {
+        if (isCapturing.get()) {
+            Logger.warn("Ya hay una captura en curso")
+            return
+        }
+
         try {
             Logger.info("Iniciando captura de pantalla...")
-            
+
             val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpManager.getMediaProjection(RESULT_OK, data)
-            
+
             if (mediaProjection == null) {
                 Logger.error("No se pudo obtener MediaProjection")
                 return
             }
+
+            mediaProjection?.registerCallback(projectionCallback, mainHandler)
 
             val metrics = resources.displayMetrics
             val width = metrics.widthPixels
@@ -215,73 +270,89 @@ class MainActivity : ComponentActivity() {
             captureThread = HandlerThread("ScreenCapture").apply { start() }
             captureHandler = Handler(captureThread!!.looper)
 
-            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3)
 
             virtualDisplay = mediaProjection?.createVirtualDisplay(
                 "screenCap",
                 width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader?.surface,
-                null, null
+                null, captureHandler
             )
 
             if (virtualDisplay == null) {
                 Logger.error("No se pudo crear VirtualDisplay")
-                stopCapture()
+                cleanupCaptureResources()
                 return
             }
 
-            isCapturing = true
-            binding.btnCapture.text = "Detener captura"
-            Logger.success("Captura iniciada - Esperando frames...")
+            isCapturing.set(true)
+            mainHandler.post {
+                binding.btnCapture.text = "Detener captura"
+            }
+            Logger.success("Captura iniciada - Procesando frames...")
 
-            imageReader?.setOnImageAvailableListener({ reader ->
-                if (!isCapturing) return@setOnImageAvailableListener
-                
-                val image = try {
-                    reader.acquireLatestImage()
-                } catch (e: Exception) {
-                    null
-                }
-                
-                if (image == null) return@setOnImageAvailableListener
-
-                try {
-                    val planes = image.planes
-                    val buffer = planes[0].buffer
-                    val pixelStride = planes[0].pixelStride
-                    val rowStride = planes[0].rowStride
-                    val rowPadding = rowStride - pixelStride * width
-
-                    val bitmap = Bitmap.createBitmap(
-                        width + rowPadding / pixelStride,
-                        height,
-                        Bitmap.Config.ARGB_8888
-                    )
-                    bitmap.copyPixelsFromBuffer(buffer)
-
-                    val croppedBitmap = if (bitmap.width > width) {
-                        Bitmap.createBitmap(bitmap, 0, 0, width, height).also {
-                            bitmap.recycle()
-                        }
-                    } else {
-                        bitmap
-                    }
-
-                    image.close()
-
-                    processFrame(croppedBitmap)
-                    
-                } catch (e: Exception) {
-                    mainHandler.post { Logger.error("Error procesando frame: ${e.message}") }
-                    try { image.close() } catch (_: Exception) {}
-                }
-            }, captureHandler)
+            setupImageListener(width, height)
 
         } catch (e: Exception) {
             Logger.error("Error al iniciar captura: ${e.message}")
-            stopCapture()
+            cleanupCaptureResources()
         }
+    }
+
+    private fun setupImageListener(width: Int, height: Int) {
+        imageReader?.setOnImageAvailableListener({ reader ->
+            if (!isCapturing.get()) return@setOnImageAvailableListener
+
+            val now = System.currentTimeMillis()
+            if (now - lastProcessedTime.get() < minFrameInterval) {
+                try {
+                    reader.acquireLatestImage()?.close()
+                } catch (e: Exception) { }
+                return@setOnImageAvailableListener
+            }
+
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: Exception) {
+                null
+            }
+
+            if (image == null) return@setOnImageAvailableListener
+
+            try {
+                lastProcessedTime.set(now)
+
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * width
+
+                val bitmapWidth = width + rowPadding / pixelStride
+                val bitmap = Bitmap.createBitmap(
+                    bitmapWidth,
+                    height,
+                    Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                image.close()
+
+                val croppedBitmap = if (bitmapWidth > width) {
+                    Bitmap.createBitmap(bitmap, 0, 0, width, height).also {
+                        bitmap.recycle()
+                    }
+                } else {
+                    bitmap
+                }
+
+                processFrame(croppedBitmap)
+
+            } catch (e: Exception) {
+                mainHandler.post { Logger.error("Error procesando frame: ${e.message}") }
+                try { image.close() } catch (_: Exception) { }
+            }
+        }, captureHandler)
     }
 
     private fun processFrame(bitmap: Bitmap) {
@@ -289,15 +360,18 @@ class MainActivity : ComponentActivity() {
             mainHandler.post { Logger.info(fps) }
         }
 
-        val uri = modelUri ?: return
-        
+        val uri = modelUri ?: run {
+            bitmap.recycle()
+            return
+        }
+
         val result = OnnxProcessor.processImage(this, uri, bitmap) { log ->
             mainHandler.post { Logger.info(log) }
         }
 
         mainHandler.post {
             if (result != null) {
-                Logger.success("Inferencia: ${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
+                Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
 
                 ResultOverlay.clear(binding.overlayContainer)
                 ResultOverlay.show(
@@ -315,43 +389,55 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopCapture() {
-        isCapturing = false
-        
+        if (!isCapturing.getAndSet(false)) return
+        stopCaptureInternal()
+    }
+
+    private fun stopCaptureInternal() {
+        isCapturing.set(false)
+
         mainHandler.post {
             binding.btnCapture.text = getString(R.string.capture)
         }
 
+        cleanupCaptureResources()
+
+        try {
+            stopService(Intent(this, ScreenCaptureService::class.java))
+        } catch (e: Exception) { }
+
+        Logger.info("Captura detenida")
+    }
+
+    private fun cleanupCaptureResources() {
         try {
             imageReader?.setOnImageAvailableListener(null, null)
+        } catch (e: Exception) { }
+
+        try {
             imageReader?.close()
-            imageReader = null
-        } catch (e: Exception) {
-            Logger.warn("Error al cerrar ImageReader: ${e.message}")
-        }
+        } catch (e: Exception) { }
+        imageReader = null
 
         try {
             virtualDisplay?.release()
-            virtualDisplay = null
-        } catch (e: Exception) {
-            Logger.warn("Error al liberar VirtualDisplay: ${e.message}")
-        }
+        } catch (e: Exception) { }
+        virtualDisplay = null
+
+        try {
+            mediaProjection?.unregisterCallback(projectionCallback)
+        } catch (e: Exception) { }
 
         try {
             mediaProjection?.stop()
-            mediaProjection = null
-        } catch (e: Exception) {
-            Logger.warn("Error al detener MediaProjection: ${e.message}")
-        }
+        } catch (e: Exception) { }
+        mediaProjection = null
 
         try {
             captureThread?.quitSafely()
-            captureThread = null
-            captureHandler = null
-        } catch (e: Exception) {
-            Logger.warn("Error al detener thread: ${e.message}")
-        }
-
-        Logger.info("Captura detenida")
+        } catch (e: Exception) { }
+        captureThread = null
+        captureHandler = null
     }
 
     fun saveCurrentFrame(bitmap: Bitmap) {

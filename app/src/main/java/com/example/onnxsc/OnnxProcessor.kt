@@ -36,6 +36,8 @@ data class InferenceResult(
     }
 }
 
+enum class TensorLayout { NCHW, NHWC, UNKNOWN }
+
 object OnnxProcessor {
 
     private var ortEnv: OrtEnvironment? = null
@@ -43,6 +45,7 @@ object OnnxProcessor {
     private var currentModelUri: String? = null
     private var inputName: String? = null
     private var inputShape: LongArray? = null
+    private var inputLayout: TensorLayout = TensorLayout.NCHW
     private val lock = Any()
 
     private fun getEnvironment(): OrtEnvironment {
@@ -73,8 +76,10 @@ object OnnxProcessor {
                 }
 
                 val env = getEnvironment()
-                val sessionOptions = OrtSession.SessionOptions()
-                sessionOptions.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+                val sessionOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+                    setIntraOpNumThreads(2)
+                }
 
                 currentSession = env.createSession(modelFile.absolutePath, sessionOptions)
                 currentModelUri = uriString
@@ -89,13 +94,27 @@ object OnnxProcessor {
                 val firstInput = inputInfo.entries.first()
                 inputName = firstInput.key
 
-                val tensorInfo = firstInput.value.info as? TensorInfo
-                inputShape = tensorInfo?.shape
+                val nodeInfo = firstInput.value.info
+                if (nodeInfo !is TensorInfo) {
+                    onLog("Error: Input no es un tensor")
+                    closeSessionInternal()
+                    return@synchronized false
+                }
+
+                val tensorInfo = nodeInfo as TensorInfo
+                
+                if (tensorInfo.type != OnnxJavaType.FLOAT) {
+                    onLog("Advertencia: Input no es float (${tensorInfo.type}), puede fallar")
+                }
+
+                inputShape = tensorInfo.shape
+                inputLayout = detectLayout(inputShape)
 
                 val outputNames = currentSession!!.outputNames.joinToString(", ")
 
                 onLog("Modelo cargado: ${modelUri.lastPathSegment ?: "modelo"}")
                 onLog("Input: $inputName, shape: ${inputShape?.contentToString() ?: "desconocido"}")
+                onLog("Layout detectado: $inputLayout")
                 onLog("Outputs: $outputNames")
                 true
             } catch (e: OrtException) {
@@ -107,6 +126,21 @@ object OnnxProcessor {
                 closeSessionInternal()
                 false
             }
+        }
+    }
+
+    private fun detectLayout(shape: LongArray?): TensorLayout {
+        if (shape == null || shape.size != 4) return TensorLayout.UNKNOWN
+        
+        val dim1 = shape[1]
+        val dim3 = shape[3]
+        
+        return when {
+            dim1 in 1..4 && dim3 > 4 -> TensorLayout.NCHW
+            dim3 in 1..4 && dim1 > 4 -> TensorLayout.NHWC
+            dim1 == 3L -> TensorLayout.NCHW
+            dim3 == 3L -> TensorLayout.NHWC
+            else -> TensorLayout.NCHW
         }
     }
 
@@ -129,19 +163,27 @@ object OnnxProcessor {
                 val session = currentSession ?: return@synchronized null
                 val name = inputName ?: session.inputNames.iterator().next()
 
-                val height = getInputDimension(2, 224)
-                val width = getInputDimension(3, 224)
-                val channels = getInputDimension(1, 3)
+                val (height, width, channels) = getInputDimensions()
 
-                onLog("Redimensionando a ${width}x${height}")
+                onLog("Procesando ${width}x${height} ($inputLayout)")
                 val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
 
-                val floatArray = bitmapToFloatArray(resized, channels, height, width)
+                val floatArray = when (inputLayout) {
+                    TensorLayout.NCHW -> bitmapToNCHW(resized, channels, height, width)
+                    TensorLayout.NHWC -> bitmapToNHWC(resized, channels, height, width)
+                    TensorLayout.UNKNOWN -> bitmapToNCHW(resized, channels, height, width)
+                }
+
                 if (resized != bitmap) {
                     resized.recycle()
                 }
 
-                val shape = longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
+                val shape = when (inputLayout) {
+                    TensorLayout.NCHW -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
+                    TensorLayout.NHWC -> longArrayOf(1, height.toLong(), width.toLong(), channels.toLong())
+                    TensorLayout.UNKNOWN -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
+                }
+
                 val env = getEnvironment()
                 val inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
 
@@ -162,7 +204,7 @@ object OnnxProcessor {
                     latencyMs = latencyMs
                 )
             } catch (e: OrtException) {
-                onLog("Error ONNX en inferencia: ${e.message}")
+                onLog("Error ONNX: ${e.message}")
                 null
             } catch (e: Exception) {
                 onLog("Error en inferencia: ${e.message}")
@@ -171,12 +213,32 @@ object OnnxProcessor {
         }
     }
 
-    private fun getInputDimension(index: Int, default: Int): Int {
-        val dim = inputShape?.getOrNull(index)?.toInt() ?: default
+    private fun getInputDimensions(): Triple<Int, Int, Int> {
+        val shape = inputShape ?: return Triple(224, 224, 3)
+        
+        return when (inputLayout) {
+            TensorLayout.NCHW -> {
+                val c = getDim(shape, 1, 3)
+                val h = getDim(shape, 2, 224)
+                val w = getDim(shape, 3, 224)
+                Triple(h, w, c)
+            }
+            TensorLayout.NHWC -> {
+                val h = getDim(shape, 1, 224)
+                val w = getDim(shape, 2, 224)
+                val c = getDim(shape, 3, 3)
+                Triple(h, w, c)
+            }
+            TensorLayout.UNKNOWN -> Triple(224, 224, 3)
+        }
+    }
+
+    private fun getDim(shape: LongArray, index: Int, default: Int): Int {
+        val dim = shape.getOrNull(index)?.toInt() ?: default
         return if (dim > 0) dim else default
     }
 
-    private fun bitmapToFloatArray(bitmap: Bitmap, channels: Int, height: Int, width: Int): FloatArray {
+    private fun bitmapToNCHW(bitmap: Bitmap, channels: Int, height: Int, width: Int): FloatArray {
         val floatArray = FloatArray(channels * height * width)
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
@@ -186,6 +248,29 @@ object OnnxProcessor {
             for (y in 0 until height) {
                 for (x in 0 until width) {
                     val px = pixels[y * width + x]
+                    val value = when (c) {
+                        0 -> ((px shr 16) and 0xFF) / 255.0f
+                        1 -> ((px shr 8) and 0xFF) / 255.0f
+                        2 -> (px and 0xFF) / 255.0f
+                        else -> 0f
+                    }
+                    floatArray[idx++] = value
+                }
+            }
+        }
+        return floatArray
+    }
+
+    private fun bitmapToNHWC(bitmap: Bitmap, channels: Int, height: Int, width: Int): FloatArray {
+        val floatArray = FloatArray(height * width * channels)
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        var idx = 0
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val px = pixels[y * width + x]
+                for (c in 0 until channels) {
                     val value = when (c) {
                         0 -> ((px shr 16) and 0xFF) / 255.0f
                         1 -> ((px shr 8) and 0xFF) / 255.0f
@@ -212,7 +297,7 @@ object OnnxProcessor {
             }
 
             val outputNames = outputs.mapNotNull { it.key }
-            onLog("Outputs recibidos: ${outputNames.joinToString(", ")}")
+            onLog("Outputs: ${outputNames.joinToString(", ")}")
 
             val firstOutput = outputs[0]
             val tensor = firstOutput?.value as? OnnxTensor
@@ -224,9 +309,15 @@ object OnnxProcessor {
             val info = tensor.info
             val shape = info.shape
 
-            onLog("Shape de salida: ${shape.contentToString()}")
+            onLog("Shape salida: ${shape.contentToString()}")
 
-            val rawData = tensor.floatBuffer
+            val rawData = try {
+                tensor.floatBuffer
+            } catch (e: Exception) {
+                onLog("Error: Output no es float buffer")
+                return null
+            }
+            
             val rawArray = FloatArray(rawData.remaining())
             rawData.get(rawArray)
 
@@ -246,10 +337,10 @@ object OnnxProcessor {
             }
 
             InferenceResult(
-                className = "Output raw (${rawArray.size} valores)",
+                className = "Raw (${rawArray.size} vals)",
                 probability = rawArray.maxOrNull() ?: 0f,
                 bbox = null,
-                rawOutput = rawArray.take(100).toFloatArray(),
+                rawOutput = rawArray.take(50).toFloatArray(),
                 latencyMs = 0
             )
         } catch (e: Exception) {
@@ -266,9 +357,9 @@ object OnnxProcessor {
         val numClasses = shape[1].toInt()
         val maxIdx = rawArray.indices.maxByOrNull { rawArray[it] } ?: 0
         val probabilities = softmax(rawArray)
-        val maxProb = probabilities[maxIdx]
+        val maxProb = probabilities.getOrElse(maxIdx) { 0f }
 
-        onLog("Clasificación: clase $maxIdx de $numClasses con ${(maxProb * 100).toInt()}%")
+        onLog("Clasificación: clase $maxIdx de $numClasses (${(maxProb * 100).toInt()}%)")
 
         return InferenceResult(
             className = "Clase $maxIdx",
@@ -330,10 +421,10 @@ object OnnxProcessor {
                     val h = data[baseIdx + 3] * imgHeight
 
                     val bbox = RectF(
-                        (cx - w / 2).coerceAtLeast(0f),
-                        (cy - h / 2).coerceAtLeast(0f),
-                        (cx + w / 2).coerceAtMost(imgWidth.toFloat()),
-                        (cy + h / 2).coerceAtMost(imgHeight.toFloat())
+                        (cx - w / 2).coerceIn(0f, imgWidth.toFloat()),
+                        (cy - h / 2).coerceIn(0f, imgHeight.toFloat()),
+                        (cx + w / 2).coerceIn(0f, imgWidth.toFloat()),
+                        (cy + h / 2).coerceIn(0f, imgHeight.toFloat())
                     )
 
                     var classIdx = 0
@@ -353,7 +444,7 @@ object OnnxProcessor {
                         className = "Clase $classIdx",
                         probability = bestConf,
                         bbox = bbox,
-                        rawOutput = data.take(100).toFloatArray(),
+                        rawOutput = floatArrayOf(),
                         latencyMs = 0
                     )
                 }
@@ -382,13 +473,12 @@ object OnnxProcessor {
     private fun closeSessionInternal() {
         try {
             currentSession?.close()
-        } catch (e: Exception) {
-            // Ignorar errores al cerrar
-        }
+        } catch (e: Exception) { }
         currentSession = null
         currentModelUri = null
         inputName = null
         inputShape = null
+        inputLayout = TensorLayout.NCHW
     }
 
     fun isModelLoaded(): Boolean = synchronized(lock) { currentSession != null }

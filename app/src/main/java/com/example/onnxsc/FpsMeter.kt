@@ -2,20 +2,42 @@ package com.example.onnxsc
 
 object FpsMeter {
 
-    private var lastFrame = 0L
-    private var frames = 0
-    private var lastLog = 0L
+    private var frameCount = 0
+    private var lastFpsTime = 0L
+    private var lastFrameTime = 0L
+    private var currentFps = 0.0
+    private var currentLatency = 0L
 
     fun tick(onLog: (String) -> Unit) {
         val now = System.currentTimeMillis()
-        if (lastFrame == 0L) lastFrame = now
-        frames++
-        val delta = now - lastFrame
-        if (delta >= 1000) {
-            val fps = frames * 1000.0 / delta
-            onLog("FPS: %.1f | Latencia: %d ms".format(fps, delta))
-            frames = 0
-            lastFrame = now
+        
+        if (lastFrameTime > 0) {
+            currentLatency = now - lastFrameTime
+        }
+        lastFrameTime = now
+        
+        frameCount++
+        
+        if (lastFpsTime == 0L) {
+            lastFpsTime = now
+        }
+        
+        val elapsed = now - lastFpsTime
+        if (elapsed >= 1000) {
+            currentFps = frameCount * 1000.0 / elapsed
+            onLog("FPS: %.1f | Latencia: %d ms".format(currentFps, currentLatency))
+            frameCount = 0
+            lastFpsTime = now
         }
     }
+
+    fun reset() {
+        frameCount = 0
+        lastFpsTime = 0L
+        lastFrameTime = 0L
+        currentFps = 0.0
+        currentLatency = 0L
+    }
+
+    fun getStats(): Pair<Double, Long> = Pair(currentFps, currentLatency)
 }

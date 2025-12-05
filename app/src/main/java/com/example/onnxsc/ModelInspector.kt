@@ -2,39 +2,40 @@ package com.example.onnxsc
 
 import android.content.ContentResolver
 import android.net.Uri
-import android.provider.OpenableColumns
+import kotlin.math.min
 
 object ModelInspector {
 
     fun inspect(contentResolver: ContentResolver, uri: Uri): Inspection {
-        // Nombre humano
-        val name = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            cursor.moveToFirst()
-            cursor.getString(nameIndex)
-        } ?: uri.lastPathSegment ?: "unknown"
+        // Abrir el archivo como InputStream
+        val inputStream = contentResolver.openInputStream(uri) ?: return Inspection(false, false, false, 0)
 
-        // Header
-        val header = contentResolver.openInputStream(uri)?.use { it.readBytes().take(4096).decodeToString() } ?: ""
+        // Leer los primeros 4096 bytes (o menos si el archivo es más pequeño)
+        val allBytes = inputStream.use { it.readBytes() }
+        val bytes = allBytes.copyOfRange(0, min(4096, allBytes.size))
 
-        // Tamaño
-        val size = contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-            cursor.moveToFirst()
-            cursor.getLong(sizeIndex)
-        } ?: 0
+        // Convertir a String usando UTF-8 de manera segura
+        val header = try {
+            String(bytes, Charsets.UTF_8)
+        } catch (e: Exception) {
+            ""
+        }
 
+        // Obtener tamaño aproximado en KB
+        val fileDescriptor = contentResolver.openFileDescriptor(uri, "r")
+        val sizeKb = (fileDescriptor?.statSize ?: 0) / 1024
+
+        // Analizar contenido para detectar características del modelo
         return Inspection(
-            name = name,
-            hasJsOperators = "com.microsoft.contrib" in header,
-            hasNodeOps = "ai.onnx.contrib" in header || "ai.onnx.ml" in header,
-            hasExternalWeights = "external_data" in header,
-            sizeKb = size / 1024
+            hasJsOperators = header.contains("com.microsoft.contrib"),
+            hasNodeOps = header.contains("ai.onnx.contrib") || header.contains("ai.onnx.ml"),
+            hasExternalWeights = header.contains("external_data"),
+            sizeKb = sizeKb
         )
     }
 
+    // Clase de inspección del modelo
     data class Inspection(
-        val name: String,
         val hasJsOperators: Boolean,
         val hasNodeOps: Boolean,
         val hasExternalWeights: Boolean,

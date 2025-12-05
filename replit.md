@@ -90,13 +90,18 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
-- **2025-12-05 (v5)**:
-  - **FIX CRÍTICO: Soporte COMPLETO para todos los tipos de output ONNX**
-    - Ahora soporta OnnxTensor, OnnxSequence, OnnxMap Y arrays de Java directos (float[][][], etc.)
+- **2025-12-05 (v6)**:
+  - **FIX CRÍTICO: Crash después de 1-2 minutos de captura**
+    - Corregido memory leak por acumulación de bitmaps
+    - Nuevo sistema de procesamiento con thread dedicado (HandlerThread)
+    - Límite de frames pendientes (MAX_PENDING_FRAMES = 2) para evitar OOM
+    - Manejo correcto de reciclaje de bitmaps (copia antes de reciclar original)
+    - Limpieza de callbacks pendientes al detener captura
+    - Manejo de OutOfMemoryError con System.gc()
+  - **v5**: Soporte COMPLETO para todos los tipos de output ONNX
+    - OnnxTensor, OnnxSequence, OnnxMap Y arrays de Java directos (float[][][], etc.)
     - Funciones recursivas para aplanar datos y calcular shapes correctamente
     - Preserva las formas originales (ej: [1, 25200, 85] para YOLO)
-    - Corrige el error "Tipo de output no soportado: float[][][]"
-  - **v4**: Soporte inicial para OnnxSequence y OnnxMap
   - **FIX: Consola mejorada**
     - Throttling de mensajes duplicados (ventana de 2 segundos)
     - Límite de 100 líneas para evitar saturación de memoria

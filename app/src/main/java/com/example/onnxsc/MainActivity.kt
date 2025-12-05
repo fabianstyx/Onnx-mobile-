@@ -10,12 +10,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.example.onnxsc.databinding.ActivityMainBinding
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : ComponentActivity() {
 
@@ -28,6 +30,12 @@ class MainActivity : ComponentActivity() {
     private val isCapturing = AtomicBoolean(false)
     private var lastCapturedBitmap: Bitmap? = null
     private var lastDetections: List<Detection> = emptyList()
+    
+    private var processingThread: HandlerThread? = null
+    private var processingHandler: Handler? = null
+    private val isProcessing = AtomicBoolean(false)
+    private val pendingFrames = AtomicInteger(0)
+    private val MAX_PENDING_FRAMES = 2
 
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -71,9 +79,19 @@ class MainActivity : ComponentActivity() {
         Logger.info("App iniciada - ONNX Screen v1.0")
 
         modelSwitcher = ModelSwitcher(this)
+        
+        initProcessingThread()
 
         checkAndRequestPermissions()
         setupButtons()
+    }
+    
+    private fun initProcessingThread() {
+        processingThread?.quitSafely()
+        processingThread = HandlerThread("OnnxProcessing").apply { 
+            start() 
+        }
+        processingHandler = Handler(processingThread!!.looper)
     }
 
     private fun checkAndRequestPermissions() {
@@ -246,6 +264,11 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun stopCaptureService() {
+        isCapturing.set(false)
+        pendingFrames.set(0)
+        
+        processingHandler?.removeCallbacksAndMessages(null)
+        
         try {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 action = ScreenCaptureService.ACTION_STOP
@@ -255,7 +278,6 @@ class MainActivity : ComponentActivity() {
             Logger.error("Error al detener servicio: ${e.message}")
         }
         
-        isCapturing.set(false)
         binding.btnCapture.text = getString(R.string.capture)
     }
 
@@ -265,41 +287,97 @@ class MainActivity : ComponentActivity() {
         }
 
         val uri = modelUri ?: run {
-            bitmap.recycle()
+            safeRecycleBitmap(bitmap)
+            return
+        }
+        
+        val handler = processingHandler ?: run {
+            safeRecycleBitmap(bitmap)
             return
         }
 
-        Thread {
-            val result = OnnxProcessor.processImage(this, uri, bitmap) { log ->
-                mainHandler.post { Logger.info(log) }
-            }
-
-            mainHandler.post {
-                if (result != null) {
-                    Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
-
-                    lastCapturedBitmap?.recycle()
-                    lastCapturedBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-                    lastDetections = result.allDetections
-
-                    ResultOverlay.clear(binding.overlayContainer)
-                    if (result.allDetections.isNotEmpty()) {
-                        ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
-                    } else if (result.probability > 0) {
-                        ResultOverlay.show(
-                            binding.overlayContainer,
-                            result.className,
-                            result.probability,
-                            result.bbox
-                        )
-                    }
+        if (pendingFrames.get() >= MAX_PENDING_FRAMES) {
+            safeRecycleBitmap(bitmap)
+            return
+        }
+        
+        pendingFrames.incrementAndGet()
+        
+        handler.post {
+            var bitmapCopy: Bitmap? = null
+            try {
+                if (!isCapturing.get()) {
+                    safeRecycleBitmap(bitmap)
+                    pendingFrames.decrementAndGet()
+                    return@post
                 }
                 
-                if (!bitmap.isRecycled) {
-                    bitmap.recycle()
+                bitmapCopy = try {
+                    if (!bitmap.isRecycled) {
+                        bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                    } else null
+                } catch (e: Exception) { null }
+                
+                safeRecycleBitmap(bitmap)
+                
+                if (bitmapCopy == null) {
+                    pendingFrames.decrementAndGet()
+                    return@post
+                }
+                
+                val result = OnnxProcessor.processImage(this, uri, bitmapCopy!!) { log ->
+                    mainHandler.post { Logger.info(log) }
+                }
+                
+                val finalBitmapCopy = bitmapCopy
+                bitmapCopy = null
+
+                mainHandler.post {
+                    try {
+                        if (result != null && isCapturing.get()) {
+                            Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
+
+                            safeRecycleBitmap(lastCapturedBitmap)
+                            lastCapturedBitmap = finalBitmapCopy
+                            lastDetections = result.allDetections
+
+                            ResultOverlay.clear(binding.overlayContainer)
+                            if (result.allDetections.isNotEmpty()) {
+                                ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
+                            } else if (result.probability > 0) {
+                                ResultOverlay.show(
+                                    binding.overlayContainer,
+                                    result.className,
+                                    result.probability,
+                                    result.bbox
+                                )
+                            }
+                        } else {
+                            safeRecycleBitmap(finalBitmapCopy)
+                        }
+                    } catch (e: Exception) {
+                        safeRecycleBitmap(finalBitmapCopy)
+                    } finally {
+                        pendingFrames.decrementAndGet()
+                    }
+                }
+            } catch (e: Exception) {
+                safeRecycleBitmap(bitmap)
+                safeRecycleBitmap(bitmapCopy)
+                pendingFrames.decrementAndGet()
+                mainHandler.post { 
+                    Logger.error("Error procesando frame: ${e.message}") 
                 }
             }
-        }.start()
+        }
+    }
+    
+    private fun safeRecycleBitmap(bitmap: Bitmap?) {
+        try {
+            if (bitmap != null && !bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+        } catch (e: Exception) { }
     }
 
     private fun saveCaptureWithOverlay() {
@@ -356,8 +434,17 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         stopCaptureService()
         ScreenCaptureService.clearCallbacks()
-        lastCapturedBitmap?.recycle()
+        
+        try {
+            processingThread?.quitSafely()
+        } catch (e: Exception) { }
+        processingThread = null
+        processingHandler = null
+        
+        safeRecycleBitmap(lastCapturedBitmap)
         lastCapturedBitmap = null
+        lastDetections = emptyList()
+        
         OnnxProcessor.closeSession()
     }
 }

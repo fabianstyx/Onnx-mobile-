@@ -219,6 +219,9 @@ object OnnxProcessor {
         onLog: (String) -> Unit
     ): InferenceResult? {
         val startTime = System.currentTimeMillis()
+        var resized: Bitmap? = null
+        var inputTensor: OnnxTensor? = null
+        var outputs: OrtSession.Result? = null
 
         return synchronized(lock) {
             try {
@@ -234,16 +237,17 @@ object OnnxProcessor {
                 val (height, width, channels) = getInputDimensions()
 
                 onLog("Procesando ${width}x${height} ($inputLayout)")
-                val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+                resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
 
                 val floatArray = when (inputLayout) {
-                    TensorLayout.NCHW -> bitmapToNCHW(resized, channels, height, width)
-                    TensorLayout.NHWC -> bitmapToNHWC(resized, channels, height, width)
-                    TensorLayout.UNKNOWN -> bitmapToNCHW(resized, channels, height, width)
+                    TensorLayout.NCHW -> bitmapToNCHW(resized!!, channels, height, width)
+                    TensorLayout.NHWC -> bitmapToNHWC(resized!!, channels, height, width)
+                    TensorLayout.UNKNOWN -> bitmapToNCHW(resized!!, channels, height, width)
                 }
 
-                if (resized != bitmap) {
-                    resized.recycle()
+                if (resized != bitmap && resized != null) {
+                    resized!!.recycle()
+                    resized = null
                 }
 
                 val shape = when (inputLayout) {
@@ -253,16 +257,20 @@ object OnnxProcessor {
                 }
 
                 val env = getEnvironment()
-                val inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
+                inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
 
                 onLog("Ejecutando inferencia...")
-                val outputs = session.run(mapOf(name to inputTensor))
-                inputTensor.close()
+                outputs = session.run(mapOf(name to inputTensor))
+                
+                try { inputTensor?.close() } catch (e: Exception) { }
+                inputTensor = null
 
                 val latencyMs = System.currentTimeMillis() - startTime
 
-                val result = parseOutput(outputs, bitmap.width, bitmap.height, width, height, onLog)
-                outputs.close()
+                val result = parseOutput(outputs!!, bitmap.width, bitmap.height, width, height, onLog)
+                
+                try { outputs?.close() } catch (e: Exception) { }
+                outputs = null
 
                 result?.copy(latencyMs = latencyMs) ?: InferenceResult(
                     className = "Sin resultado",
@@ -271,12 +279,24 @@ object OnnxProcessor {
                     rawOutput = floatArrayOf(),
                     latencyMs = latencyMs
                 )
+            } catch (e: OutOfMemoryError) {
+                onLog("Error: Memoria insuficiente")
+                System.gc()
+                null
             } catch (e: OrtException) {
                 onLog("Error ONNX: ${e.message}")
                 null
             } catch (e: Exception) {
                 onLog("Error en inferencia: ${e.message}")
                 null
+            } finally {
+                try { 
+                    if (resized != null && resized != bitmap && !resized!!.isRecycled) {
+                        resized!!.recycle() 
+                    }
+                } catch (e: Exception) { }
+                try { inputTensor?.close() } catch (e: Exception) { }
+                try { outputs?.close() } catch (e: Exception) { }
             }
         }
     }

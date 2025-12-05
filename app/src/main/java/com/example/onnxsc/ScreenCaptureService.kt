@@ -245,7 +245,10 @@ class ScreenCaptureService : Service() {
     
     private fun setupImageListener() {
         imageReader?.setOnImageAvailableListener({ reader ->
-            if (!isCapturing.get()) return@setOnImageAvailableListener
+            if (!isCapturing.get()) {
+                try { reader.acquireLatestImage()?.close() } catch (e: Exception) { }
+                return@setOnImageAvailableListener
+            }
             
             val now = System.currentTimeMillis()
             if (now - lastProcessedTime.get() < minFrameInterval) {
@@ -263,6 +266,9 @@ class ScreenCaptureService : Service() {
             
             if (image == null) return@setOnImageAvailableListener
             
+            var bitmap: Bitmap? = null
+            var finalBitmap: Bitmap? = null
+            
             try {
                 lastProcessedTime.set(now)
                 
@@ -273,7 +279,7 @@ class ScreenCaptureService : Service() {
                 val rowPadding = rowStride - pixelStride * screenWidth
                 
                 val bitmapWidth = screenWidth + rowPadding / pixelStride
-                val bitmap = Bitmap.createBitmap(
+                bitmap = Bitmap.createBitmap(
                     bitmapWidth,
                     screenHeight,
                     Bitmap.Config.ARGB_8888
@@ -281,20 +287,35 @@ class ScreenCaptureService : Service() {
                 bitmap.copyPixelsFromBuffer(buffer)
                 image.close()
                 
-                val finalBitmap = if (bitmapWidth > screenWidth) {
+                finalBitmap = if (bitmapWidth > screenWidth) {
                     Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight).also {
                         bitmap.recycle()
+                        bitmap = null
                     }
                 } else {
                     bitmap
                 }
                 
+                val bitmapToSend = finalBitmap
+                finalBitmap = null
+                
                 mainHandler.post {
-                    frameCallback?.invoke(finalBitmap)
+                    try {
+                        frameCallback?.invoke(bitmapToSend!!)
+                    } catch (e: Exception) {
+                        try { bitmapToSend?.recycle() } catch (_: Exception) { }
+                    }
                 }
                 
+            } catch (e: OutOfMemoryError) {
+                try { image.close() } catch (_: Exception) { }
+                try { bitmap?.recycle() } catch (_: Exception) { }
+                try { finalBitmap?.recycle() } catch (_: Exception) { }
+                System.gc()
             } catch (e: Exception) {
                 try { image.close() } catch (_: Exception) { }
+                try { bitmap?.recycle() } catch (_: Exception) { }
+                try { finalBitmap?.recycle() } catch (_: Exception) { }
                 mainHandler.post {
                     errorCallback?.invoke("Error procesando frame: ${e.message}")
                 }

@@ -17,6 +17,14 @@ object ResultOverlay {
     private val overlayViews = mutableListOf<View>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lock = Any()
+    
+    private var sourceWidth: Int = 0
+    private var sourceHeight: Int = 0
+    
+    fun setSourceDimensions(width: Int, height: Int) {
+        sourceWidth = width
+        sourceHeight = height
+    }
 
     private val COLORS = listOf(
         Color.parseColor("#4CAF50"),
@@ -88,7 +96,7 @@ object ResultOverlay {
                         FrameLayout.LayoutParams.WRAP_CONTENT
                     ).apply {
                         gravity = Gravity.TOP or Gravity.END
-                        topMargin = 16
+                        topMargin = 60
                         rightMargin = 16
                     }
 
@@ -98,7 +106,15 @@ object ResultOverlay {
                     for ((index, det) in detections.withIndex()) {
                         if (det.bbox.width() > 0 && det.bbox.height() > 0) {
                             val color = COLORS[det.classId % COLORS.size]
-                            val bboxView = BboxView(context, det.bbox, det.className, det.confidence, color)
+                            val bboxView = BboxView(
+                                context, 
+                                det.bbox, 
+                                det.className, 
+                                det.confidence, 
+                                color,
+                                sourceWidth,
+                                sourceHeight
+                            )
                             val bboxParams = FrameLayout.LayoutParams(
                                 FrameLayout.LayoutParams.MATCH_PARENT,
                                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -152,7 +168,15 @@ object ResultOverlay {
 
                     if (bbox != null && bbox.width() > 0 && bbox.height() > 0) {
                         val color = COLORS[0]
-                        val bboxView = BboxView(context, bbox, clazz, prob, color)
+                        val bboxView = BboxView(
+                            context, 
+                            bbox, 
+                            clazz, 
+                            prob, 
+                            color,
+                            sourceWidth,
+                            sourceHeight
+                        )
                         val bboxParams = FrameLayout.LayoutParams(
                             FrameLayout.LayoutParams.MATCH_PARENT,
                             FrameLayout.LayoutParams.MATCH_PARENT
@@ -195,25 +219,36 @@ object ResultOverlay {
         private val bbox: RectF,
         private val label: String,
         private val confidence: Float,
-        private val color: Int
+        private val color: Int,
+        private val srcWidth: Int,
+        private val srcHeight: Int
     ) : View(context) {
 
         private val strokePaint = Paint().apply {
             this.color = this@BboxView.color
             style = Paint.Style.STROKE
-            strokeWidth = 4f
+            strokeWidth = 6f
+            isAntiAlias = true
+            setShadowLayer(4f, 2f, 2f, Color.BLACK)
+        }
+        
+        private val outlinePaint = Paint().apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 10f
             isAntiAlias = true
         }
 
         private val textPaint = Paint().apply {
             color = Color.WHITE
-            textSize = 26f
+            textSize = 32f
             isAntiAlias = true
             typeface = Typeface.DEFAULT_BOLD
+            setShadowLayer(4f, 2f, 2f, Color.BLACK)
         }
 
         private val bgPaint = Paint().apply {
-            color = (this@BboxView.color and 0x00FFFFFF) or 0xCC000000.toInt()
+            color = (this@BboxView.color and 0x00FFFFFF) or 0xDD000000.toInt()
             style = Paint.Style.FILL
         }
 
@@ -222,29 +257,33 @@ object ResultOverlay {
             
             if (bbox.width() <= 0 || bbox.height() <= 0) return
 
-            val safeBox = RectF(
-                bbox.left.coerceAtLeast(2f),
-                bbox.top.coerceAtLeast(2f),
-                bbox.right.coerceAtMost(width.toFloat() - 2f),
-                bbox.bottom.coerceAtMost(height.toFloat() - 2f)
+            val scaleX = if (srcWidth > 0) width.toFloat() / srcWidth else 1f
+            val scaleY = if (srcHeight > 0) height.toFloat() / srcHeight else 1f
+
+            val scaledBox = RectF(
+                (bbox.left * scaleX).coerceAtLeast(5f),
+                (bbox.top * scaleY).coerceAtLeast(5f),
+                (bbox.right * scaleX).coerceAtMost(width.toFloat() - 5f),
+                (bbox.bottom * scaleY).coerceAtMost(height.toFloat() - 5f)
             )
 
-            canvas.drawRect(safeBox, strokePaint)
+            canvas.drawRect(scaledBox, outlinePaint)
+            canvas.drawRect(scaledBox, strokePaint)
 
             val labelText = "$label ${(confidence * 100).toInt()}%"
             val textWidth = textPaint.measureText(labelText)
-            val textHeight = 34f
-            val labelTop = (safeBox.top - textHeight).coerceAtLeast(0f)
+            val textHeight = 40f
+            val labelTop = (scaledBox.top - textHeight - 4).coerceAtLeast(0f)
 
             canvas.drawRect(
-                safeBox.left,
+                scaledBox.left - 2,
                 labelTop,
-                safeBox.left + textWidth + 16,
+                scaledBox.left + textWidth + 20,
                 labelTop + textHeight,
                 bgPaint
             )
 
-            canvas.drawText(labelText, safeBox.left + 8, labelTop + textHeight - 8, textPaint)
+            canvas.drawText(labelText, scaledBox.left + 8, labelTop + textHeight - 10, textPaint)
         }
     }
 }

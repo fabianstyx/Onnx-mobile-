@@ -15,6 +15,34 @@ object ModelInspector {
         val dataType: String,
         val isInput: Boolean
     )
+    
+    data class EmbeddedModelConfig(
+        val confidenceThreshold: Float? = null,
+        val nmsThreshold: Float? = null,
+        val maxDetections: Int? = null,
+        val classNames: List<String>? = null,
+        val inputSize: Int? = null,
+        val description: String = "",
+        val author: String = "",
+        val version: String = ""
+    ) {
+        fun hasCustomConfig(): Boolean {
+            return confidenceThreshold != null || 
+                   nmsThreshold != null || 
+                   classNames != null ||
+                   maxDetections != null
+        }
+        
+        fun toSummary(): String {
+            val parts = mutableListOf<String>()
+            confidenceThreshold?.let { parts.add("Conf: ${(it * 100).toInt()}%") }
+            nmsThreshold?.let { parts.add("NMS: ${(it * 100).toInt()}%") }
+            maxDetections?.let { parts.add("Max: $it") }
+            classNames?.let { parts.add("${it.size} clases") }
+            inputSize?.let { parts.add("Input: ${it}x${it}") }
+            return if (parts.isEmpty()) "Sin config embebida" else parts.joinToString(" | ")
+        }
+    }
 
     data class DetailedInspection(
         val modelName: String,
@@ -268,6 +296,171 @@ object ModelInspector {
             hasJsOperators = false,
             hasNodeOps = false
         )
+    }
+    
+    fun extractEmbeddedConfig(context: Context, contentResolver: ContentResolver, uri: Uri): EmbeddedModelConfig {
+        var ortEnv: OrtEnvironment? = null
+        var session: OrtSession? = null
+        
+        return try {
+            val inputStream = contentResolver.openInputStream(uri)
+                ?: return EmbeddedModelConfig()
+            
+            val allBytes = inputStream.use { it.readBytes() }
+            
+            val headerSize = min(32768, allBytes.size)
+            val header = try {
+                String(allBytes.copyOfRange(0, headerSize), Charsets.UTF_8)
+            } catch (e: Exception) { "" }
+            
+            var confThreshold: Float? = null
+            var nmsThreshold: Float? = null
+            var maxDet: Int? = null
+            var classNames: List<String>? = null
+            var inputSize: Int? = null
+            var desc = ""
+            var author = ""
+            var version = ""
+            
+            val confPatterns = listOf(
+                Regex("""conf[_-]?thresh[old]*["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE),
+                Regex("""confidence[_-]?threshold["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE),
+                Regex("""score[_-]?thresh[old]*["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE),
+                Regex("""threshold["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE)
+            )
+            
+            for (pattern in confPatterns) {
+                val match = pattern.find(header)
+                if (match != null) {
+                    val value = match.groupValues[1].toFloatOrNull()
+                    if (value != null && value in 0.0f..1.0f) {
+                        confThreshold = value
+                        break
+                    }
+                }
+            }
+            
+            val nmsPatterns = listOf(
+                Regex("""nms[_-]?thresh[old]*["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE),
+                Regex("""iou[_-]?thresh[old]*["\s:=]+([0-9.]+)""", RegexOption.IGNORE_CASE)
+            )
+            
+            for (pattern in nmsPatterns) {
+                val match = pattern.find(header)
+                if (match != null) {
+                    val value = match.groupValues[1].toFloatOrNull()
+                    if (value != null && value in 0.0f..1.0f) {
+                        nmsThreshold = value
+                        break
+                    }
+                }
+            }
+            
+            val maxDetPattern = Regex("""max[_-]?det[ections]*["\s:=]+(\d+)""", RegexOption.IGNORE_CASE)
+            maxDetPattern.find(header)?.let {
+                val value = it.groupValues[1].toIntOrNull()
+                if (value != null && value in 1..1000) {
+                    maxDet = value
+                }
+            }
+            
+            val inputSizePattern = Regex("""imgsz["\s:=]+(\d+)""", RegexOption.IGNORE_CASE)
+            inputSizePattern.find(header)?.let {
+                val value = it.groupValues[1].toIntOrNull()
+                if (value != null && value in 64..2048) {
+                    inputSize = value
+                }
+            }
+            
+            val namesPattern = Regex("""names["\s:]*\{([^}]+)\}""", RegexOption.IGNORE_CASE)
+            namesPattern.find(header)?.let { match ->
+                val namesContent = match.groupValues[1]
+                val nameEntries = mutableListOf<Pair<Int, String>>()
+                
+                val entryPattern = Regex("""(\d+)["\s:]+['"]?([^'",\}]+)['"]?""")
+                entryPattern.findAll(namesContent).forEach { entry ->
+                    val idx = entry.groupValues[1].toIntOrNull()
+                    val name = entry.groupValues[2].trim()
+                    if (idx != null && name.isNotEmpty()) {
+                        nameEntries.add(idx to name)
+                    }
+                }
+                
+                if (nameEntries.isNotEmpty()) {
+                    val sortedNames = nameEntries.sortedBy { it.first }
+                    val maxIdx = sortedNames.maxOfOrNull { it.first } ?: 0
+                    val namesList = MutableList(maxIdx + 1) { "Clase $it" }
+                    sortedNames.forEach { (idx, name) -> 
+                        if (idx < namesList.size) namesList[idx] = name 
+                    }
+                    classNames = namesList
+                }
+            }
+            
+            try {
+                val modelFile = File(context.cacheDir, "config_temp.onnx")
+                modelFile.writeBytes(allBytes)
+                
+                ortEnv = OrtEnvironment.getEnvironment()
+                val sessionOptions = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT)
+                }
+                session = ortEnv.createSession(modelFile.absolutePath, sessionOptions)
+                
+                val metadata = session.metadata
+                desc = metadata.description ?: ""
+                
+                val customMeta = metadata.customMetadata
+                customMeta?.forEach { (key, value) ->
+                    when (key.lowercase()) {
+                        "conf_threshold", "confidence_threshold", "conf" -> {
+                            value.toFloatOrNull()?.let { 
+                                if (it in 0.0f..1.0f) confThreshold = it 
+                            }
+                        }
+                        "nms_threshold", "iou_threshold", "nms", "iou" -> {
+                            value.toFloatOrNull()?.let { 
+                                if (it in 0.0f..1.0f) nmsThreshold = it 
+                            }
+                        }
+                        "max_detections", "max_det" -> {
+                            value.toIntOrNull()?.let {
+                                if (it in 1..1000) maxDet = it
+                            }
+                        }
+                        "author", "created_by" -> author = value
+                        "version" -> version = value
+                        "imgsz", "input_size" -> {
+                            value.toIntOrNull()?.let {
+                                if (it in 64..2048) inputSize = it
+                            }
+                        }
+                    }
+                }
+                
+                modelFile.delete()
+                
+            } catch (e: Exception) {
+                Logger.warn("No se pudo leer metadata ONNX: ${e.message}")
+            }
+            
+            EmbeddedModelConfig(
+                confidenceThreshold = confThreshold,
+                nmsThreshold = nmsThreshold,
+                maxDetections = maxDet,
+                classNames = classNames,
+                inputSize = inputSize,
+                description = desc,
+                author = author,
+                version = version
+            )
+            
+        } catch (e: Exception) {
+            Logger.error("Error extrayendo config embebida: ${e.message}")
+            EmbeddedModelConfig()
+        } finally {
+            try { session?.close() } catch (e: Exception) {}
+        }
     }
 
     fun inspect(contentResolver: ContentResolver, uri: Uri): Inspection {

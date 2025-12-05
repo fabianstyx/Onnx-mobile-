@@ -251,6 +251,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clickable="false"
-        android:focusable="false" />
+        android:focusable="false"
+        android:elevation="32dp"
+        android:translationZ="32dp" />
 
 </FrameLayout>

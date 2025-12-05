@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
     private val pendingFrames = AtomicInteger(0)
     private val MAX_PENDING_FRAMES = 2
 
+    private var currentDetectionCount = 0
+    private var isShowingStatus = false
+
     private val pickModelLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             uri?.let {
@@ -296,9 +299,13 @@ class MainActivity : ComponentActivity() {
         ResultOverlay.clear(binding.overlayContainer)
         FpsMeter.reset()
 
-        PostProcessingConfig.loadConfig(this, modelName)
+        val hasCustomConfig = PostProcessingConfig.loadConfig(this, modelName)
 
         inspectModel(uri)
+        
+        if (!hasCustomConfig) {
+            applyEmbeddedModelConfig(uri, modelName)
+        }
 
         Thread {
             val success = OnnxProcessor.loadModel(this, uri) { log ->
@@ -309,6 +316,41 @@ class MainActivity : ComponentActivity() {
                     Logger.success("Modelo listo para inferencia")
                 } else {
                     Logger.error("Error al cargar el modelo")
+                }
+            }
+        }.start()
+    }
+    
+    private fun applyEmbeddedModelConfig(uri: Uri, modelName: String) {
+        Thread {
+            try {
+                val embeddedConfig = ModelInspector.extractEmbeddedConfig(this, contentResolver, uri)
+                
+                if (embeddedConfig.hasCustomConfig()) {
+                    mainHandler.post {
+                        Logger.info("Configuracion embebida detectada: ${embeddedConfig.toSummary()}")
+                        
+                        val currentSettings = PostProcessingConfig.getCurrentSettings()
+                        
+                        val newSettings = currentSettings.copy(
+                            confidenceThreshold = embeddedConfig.confidenceThreshold ?: currentSettings.confidenceThreshold,
+                            nmsThreshold = embeddedConfig.nmsThreshold ?: currentSettings.nmsThreshold,
+                            maxDetections = embeddedConfig.maxDetections ?: currentSettings.maxDetections,
+                            classNames = embeddedConfig.classNames ?: currentSettings.classNames,
+                            modelName = modelName
+                        )
+                        
+                        PostProcessingConfig.updateSettings(newSettings)
+                        Logger.success("Configuracion del modelo aplicada automaticamente")
+                    }
+                } else {
+                    mainHandler.post {
+                        Logger.info("No se encontro configuracion embebida en el modelo")
+                    }
+                }
+            } catch (e: Exception) {
+                mainHandler.post {
+                    Logger.warn("No se pudo leer configuracion embebida: ${e.message}")
                 }
             }
         }.start()
@@ -371,11 +413,21 @@ class MainActivity : ComponentActivity() {
                 isCapturing.set(true)
                 binding.btnCapture.text = "Detener captura"
                 Logger.success("Captura iniciada - Procesando frames...")
+                
+                if (!isShowingStatus) {
+                    StatusOverlay.show(binding.overlayContainer)
+                    StatusOverlay.setRecording(true)
+                    isShowingStatus = true
+                }
             },
             onStopped = {
                 isCapturing.set(false)
                 binding.btnCapture.text = getString(R.string.capture)
                 Logger.info("Captura detenida")
+                
+                StatusOverlay.setRecording(false)
+                StatusOverlay.hide(binding.overlayContainer)
+                isShowingStatus = false
             }
         )
         
@@ -400,8 +452,13 @@ class MainActivity : ComponentActivity() {
     private fun stopCaptureService() {
         isCapturing.set(false)
         pendingFrames.set(0)
+        currentDetectionCount = 0
         
         processingHandler?.removeCallbacksAndMessages(null)
+        
+        StatusOverlay.setRecording(false)
+        StatusOverlay.hide(binding.overlayContainer)
+        isShowingStatus = false
         
         try {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
@@ -473,15 +530,20 @@ class MainActivity : ComponentActivity() {
                 val finalBitmapCopy = bitmapCopy
                 bitmapCopy = null
 
+                val bitmapWidth = finalBitmapCopy?.width ?: 0
+                val bitmapHeight = finalBitmapCopy?.height ?: 0
+                
                 mainHandler.post {
                     try {
                         if (result != null && isCapturing.get()) {
-                            Logger.success("${result.className} (${(result.probability * 100).toInt()}%) - ${result.latencyMs}ms")
-
                             safeRecycleBitmap(lastCapturedBitmap)
                             lastCapturedBitmap = finalBitmapCopy
                             lastDetections = result.allDetections
-
+                            
+                            currentDetectionCount = result.allDetections.size
+                            StatusOverlay.updateDetectionCount(currentDetectionCount)
+                            
+                            ResultOverlay.setSourceDimensions(bitmapWidth, bitmapHeight)
                             ResultOverlay.clear(binding.overlayContainer)
                             if (result.allDetections.isNotEmpty()) {
                                 ResultOverlay.showMultiple(binding.overlayContainer, result.allDetections)
@@ -575,6 +637,9 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         stopCaptureService()
         ScreenCaptureService.clearCallbacks()
+        
+        StatusOverlay.hide(binding.overlayContainer)
+        isShowingStatus = false
         
         try {
             processingThread?.quitSafely()

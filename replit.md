@@ -90,21 +90,23 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
-- **2025-12-05**: 
-  - **FIX CRÍTICO v3**: Arquitectura completa de captura reescrita para Android 14+
-    - **Todo el procesamiento de MediaProjection ocurre DENTRO del servicio**
+- **2025-12-05 (v4)**:
+  - **FIX: Soporte para múltiples tipos de output ONNX**
+    - Ahora soporta OnnxTensor, OnnxSequence y OnnxMap como tipos de salida
+    - Preserva las formas (shapes) originales de los tensores cuando están dentro de secuencias
+    - Corrige el error "Output no es un tensor válido" que ocurría con algunos modelos
+  - **FIX: Consola mejorada**
+    - Throttling de mensajes duplicados (ventana de 2 segundos)
+    - Límite de 100 líneas para evitar saturación de memoria
+    - Texto seleccionable y copiable (textIsSelectable=true)
+    - ScrollView independiente con altura de 250dp
+    - Scrollbars siempre visibles
+  - **Cambios anteriores (v3)**:
+    - Arquitectura completa de captura reescrita para Android 14+
+    - Todo el procesamiento de MediaProjection ocurre DENTRO del servicio
     - ImageReader, VirtualDisplay y captura de frames todo dentro de ScreenCaptureService
-    - Delay de 100ms después de startForeground() antes de getMediaProjection()
-    - Activity solo recibe frames via callbacks estáticos
-    - Secuencia: startForeground() → delay 100ms → getMediaProjection() → createVirtualDisplay()
-    - El Intent de permisos se pasa via extras (EXTRA_RESULT_CODE, EXTRA_RESULT_DATA)
-  - PostProcessor con auto-detección de formato (YOLO, RT-DETR, SSD, clasificación, segmentación)
-  - NMS real aplicado a todos los formatos de detección
-  - Soporte para múltiples detecciones simultáneas
-  - Botón "Guardar captura" que dibuja overlay en la imagen
-  - ResultOverlay con colores por clase y resumen de detecciones
-  - Manejo de modelos multi-output (SSD)
-  - OnnxProcessor con validación de tipos FLOAT/DOUBLE
-  - ScreenCaptureService para compatibilidad con Android 10+
-  - Código sin mocks y con manejo robusto de errores
-  - Eliminado ScreenCaptureManager.kt (código placeholder no usado)
+    - PostProcessor con auto-detección de formato (YOLO, RT-DETR, SSD, clasificación, segmentación)
+    - NMS real aplicado a todos los formatos de detección
+    - Soporte para múltiples detecciones simultáneas
+    - Botón "Guardar captura" que dibuja overlay en la imagen
+    - ResultOverlay con colores por clase y resumen de detecciones

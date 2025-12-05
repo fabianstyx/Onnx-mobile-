@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
     private val isCapturing = AtomicBoolean(false)
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
+    private var pendingCaptureIntent: Intent? = null
 
     private val lastProcessedTime = AtomicLong(0)
     private val minFrameInterval = 16L
@@ -65,22 +66,8 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK && result.data != null) {
                 Logger.info("Permiso de captura concedido")
-                
-                val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                val captureIntent = result.data!!.clone() as Intent
-                
-                mediaProjection = try {
-                    mpManager.getMediaProjection(RESULT_OK, captureIntent)
-                } catch (e: Exception) {
-                    Logger.error("Error obteniendo MediaProjection: ${e.message}")
-                    null
-                }
-                
-                if (mediaProjection != null) {
-                    startForegroundServiceAndCapture()
-                } else {
-                    Logger.error("No se pudo obtener MediaProjection")
-                }
+                pendingCaptureIntent = result.data!!.clone() as Intent
+                startForegroundServiceThenCapture()
             } else {
                 Logger.error("Permiso de captura DENEGADO")
             }
@@ -240,9 +227,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startForegroundServiceAndCapture() {
-        if (mediaProjection == null) {
-            Logger.error("MediaProjection no disponible")
+    private fun startForegroundServiceThenCapture() {
+        val captureIntent = pendingCaptureIntent
+        if (captureIntent == null) {
+            Logger.error("No hay Intent de captura pendiente")
             return
         }
         
@@ -255,11 +243,39 @@ class MainActivity : ComponentActivity() {
             }
             
             mainHandler.postDelayed({
-                setupScreenCapture()
-            }, 100)
+                obtainMediaProjectionAndCapture(captureIntent)
+            }, 150)
         } catch (e: Exception) {
             Logger.error("Error al iniciar servicio: ${e.message}")
-            setupScreenCapture()
+        }
+    }
+    
+    private fun obtainMediaProjectionAndCapture(captureIntent: Intent) {
+        try {
+            val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            
+            mediaProjection = try {
+                mpManager.getMediaProjection(RESULT_OK, captureIntent)
+            } catch (e: SecurityException) {
+                Logger.error("Error de seguridad: ${e.message}")
+                null
+            } catch (e: Exception) {
+                Logger.error("Error obteniendo MediaProjection: ${e.message}")
+                null
+            }
+            
+            pendingCaptureIntent = null
+            
+            if (mediaProjection != null) {
+                setupScreenCapture()
+            } else {
+                Logger.error("No se pudo obtener MediaProjection")
+                try {
+                    stopService(Intent(this, ScreenCaptureService::class.java))
+                } catch (e: Exception) { }
+            }
+        } catch (e: Exception) {
+            Logger.error("Error en captura: ${e.message}")
         }
     }
 
@@ -437,6 +453,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cleanupCaptureResources() {
+        pendingCaptureIntent = null
+        
         try {
             imageReader?.setOnImageAvailableListener(null, null)
         } catch (e: Exception) { }

@@ -246,10 +246,11 @@ object ConfigEngine {
     
     private fun setupFileObserver() {
         val file = configFile ?: return
+        val parentPath = file.parentFile?.path ?: return
         
         fileObserver?.stopWatching()
         
-        fileObserver = object : FileObserver(file.parentFile?.path ?: return, MODIFY or CLOSE_WRITE) {
+        fileObserver = object : FileObserver(parentPath, MODIFY or CLOSE_WRITE) {
             override fun onEvent(event: Int, path: String?) {
                 if (path == CONFIG_FILE_NAME) {
                     checkAndReloadIfModified()

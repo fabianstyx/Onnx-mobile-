@@ -6,7 +6,10 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import android.net.Uri
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.nio.ShortBuffer
 
 data class InferenceResult(
     val className: String,
@@ -49,6 +52,7 @@ object OnnxProcessor {
     private var inputName: String? = null
     private var inputShape: LongArray? = null
     private var inputLayout: TensorLayout = TensorLayout.NCHW
+    private var inputType: OnnxJavaType = OnnxJavaType.FLOAT
     private val lock = Any()
 
     private fun flattenArray(arr: Any): FloatArray {
@@ -112,6 +116,200 @@ object OnnxProcessor {
             ortEnv = OrtEnvironment.getEnvironment()
         }
         return ortEnv!!
+    }
+
+    private fun createTensorForType(
+        env: OrtEnvironment,
+        floatData: FloatArray,
+        shape: LongArray,
+        type: OnnxJavaType
+    ): OnnxTensor {
+        val typeStr = type.toString().uppercase()
+        val isFloat16 = typeStr.contains("FLOAT16") || typeStr.contains("FP16")
+        
+        return when {
+            isFloat16 -> {
+                val fp16Data = ShortArray(floatData.size)
+                for (i in floatData.indices) {
+                    fp16Data[i] = floatToFloat16(floatData[i])
+                }
+                val buffer = ByteBuffer.allocateDirect(fp16Data.size * 2)
+                    .order(ByteOrder.nativeOrder())
+                buffer.asShortBuffer().put(fp16Data)
+                buffer.rewind()
+                OnnxTensor.createTensor(env, buffer, shape, OnnxJavaType.FLOAT16)
+            }
+            type == OnnxJavaType.DOUBLE -> {
+                val doubleData = DoubleArray(floatData.size) { floatData[it].toDouble() }
+                val buffer = java.nio.DoubleBuffer.wrap(doubleData)
+                OnnxTensor.createTensor(env, buffer, shape)
+            }
+            type == OnnxJavaType.INT8 -> {
+                val int8Data = ByteArray(floatData.size) { (floatData[it] * 255).toInt().coerceIn(0, 255).toByte() }
+                val buffer = ByteBuffer.wrap(int8Data)
+                OnnxTensor.createTensor(env, buffer, shape)
+            }
+            type == OnnxJavaType.UINT8 -> {
+                val uint8Data = ByteArray(floatData.size) { (floatData[it] * 255).toInt().coerceIn(0, 255).toByte() }
+                val buffer = ByteBuffer.wrap(uint8Data)
+                OnnxTensor.createTensor(env, buffer, shape)
+            }
+            type == OnnxJavaType.INT32 -> {
+                val int32Data = IntArray(floatData.size) { floatData[it].toInt() }
+                val buffer = java.nio.IntBuffer.wrap(int32Data)
+                OnnxTensor.createTensor(env, buffer, shape)
+            }
+            type == OnnxJavaType.INT64 -> {
+                val int64Data = LongArray(floatData.size) { floatData[it].toLong() }
+                val buffer = java.nio.LongBuffer.wrap(int64Data)
+                OnnxTensor.createTensor(env, buffer, shape)
+            }
+            type == OnnxJavaType.INT16 -> {
+                val int16Data = ShortArray(floatData.size) { floatData[it].toInt().toShort() }
+                val buffer = ByteBuffer.allocateDirect(int16Data.size * 2)
+                    .order(ByteOrder.nativeOrder())
+                buffer.asShortBuffer().put(int16Data)
+                buffer.rewind()
+                OnnxTensor.createTensor(env, buffer, shape, OnnxJavaType.INT16)
+            }
+            else -> {
+                OnnxTensor.createTensor(env, FloatBuffer.wrap(floatData), shape)
+            }
+        }
+    }
+    
+    private fun floatToFloat16(value: Float): Short {
+        val bits = java.lang.Float.floatToIntBits(value)
+        val sign = (bits ushr 31) and 0x1
+        val exp = (bits ushr 23) and 0xFF
+        val mantissa = bits and 0x7FFFFF
+        
+        return when {
+            exp == 0 -> (sign shl 15).toShort()
+            exp == 0xFF -> {
+                if (mantissa != 0) {
+                    ((sign shl 15) or 0x7C00 or (mantissa ushr 13)).toShort()
+                } else {
+                    ((sign shl 15) or 0x7C00).toShort()
+                }
+            }
+            else -> {
+                val newExp = exp - 127 + 15
+                when {
+                    newExp >= 31 -> ((sign shl 15) or 0x7C00).toShort()
+                    newExp <= 0 -> {
+                        if (newExp < -10) {
+                            (sign shl 15).toShort()
+                        } else {
+                            val mant = (mantissa or 0x800000) ushr (1 - newExp)
+                            ((sign shl 15) or (mant ushr 13)).toShort()
+                        }
+                    }
+                    else -> ((sign shl 15) or (newExp shl 10) or (mantissa ushr 13)).toShort()
+                }
+            }
+        }
+    }
+    
+    private fun float16ToFloat(value: Short): Float {
+        val bits = value.toInt() and 0xFFFF
+        val sign = (bits ushr 15) and 0x1
+        val exp = (bits ushr 10) and 0x1F
+        val mantissa = bits and 0x3FF
+        
+        return when {
+            exp == 0 -> {
+                if (mantissa == 0) {
+                    if (sign == 1) -0.0f else 0.0f
+                } else {
+                    val f = mantissa.toFloat() / 1024.0f
+                    if (sign == 1) -f * (1.0f / 16384.0f) else f * (1.0f / 16384.0f)
+                }
+            }
+            exp == 31 -> {
+                if (mantissa != 0) Float.NaN
+                else if (sign == 1) Float.NEGATIVE_INFINITY else Float.POSITIVE_INFINITY
+            }
+            else -> {
+                val newExp = exp - 15 + 127
+                val floatBits = (sign shl 31) or (newExp shl 23) or (mantissa shl 13)
+                java.lang.Float.intBitsToFloat(floatBits)
+            }
+        }
+    }
+    
+    private fun extractTensorData(tensor: OnnxTensor): FloatArray? {
+        val info = tensor.info
+        val typeStr = info.type.toString().uppercase()
+        val isFloat16 = typeStr.contains("FLOAT16") || typeStr.contains("FP16")
+        
+        return try {
+            when {
+                isFloat16 -> {
+                    val buffer = tensor.byteBuffer
+                    buffer.order(ByteOrder.nativeOrder())
+                    val shortBuffer = buffer.asShortBuffer()
+                    val fp16Data = ShortArray(shortBuffer.remaining())
+                    shortBuffer.get(fp16Data)
+                    FloatArray(fp16Data.size) { float16ToFloat(fp16Data[it]) }
+                }
+                info.type == OnnxJavaType.FLOAT -> {
+                    val buf = tensor.floatBuffer
+                    val arr = FloatArray(buf.remaining())
+                    buf.get(arr)
+                    arr
+                }
+                info.type == OnnxJavaType.DOUBLE -> {
+                    val buf = tensor.doubleBuffer
+                    val arr = FloatArray(buf.remaining())
+                    for (i in 0 until buf.remaining()) {
+                        arr[i] = buf.get(i).toFloat()
+                    }
+                    arr
+                }
+                info.type == OnnxJavaType.INT32 -> {
+                    val buf = tensor.intBuffer
+                    val arr = FloatArray(buf.remaining())
+                    for (i in 0 until buf.remaining()) {
+                        arr[i] = buf.get(i).toFloat()
+                    }
+                    arr
+                }
+                info.type == OnnxJavaType.INT64 -> {
+                    val buf = tensor.longBuffer
+                    val arr = FloatArray(buf.remaining())
+                    for (i in 0 until buf.remaining()) {
+                        arr[i] = buf.get(i).toFloat()
+                    }
+                    arr
+                }
+                info.type == OnnxJavaType.INT8 || info.type == OnnxJavaType.UINT8 -> {
+                    val buf = tensor.byteBuffer
+                    val arr = FloatArray(buf.remaining())
+                    for (i in 0 until buf.remaining()) {
+                        arr[i] = (buf.get(i).toInt() and 0xFF).toFloat() / 255.0f
+                    }
+                    arr
+                }
+                info.type == OnnxJavaType.INT16 -> {
+                    val buf = tensor.shortBuffer
+                    val arr = FloatArray(buf.remaining())
+                    for (i in 0 until buf.remaining()) {
+                        arr[i] = buf.get(i).toFloat()
+                    }
+                    arr
+                }
+                else -> {
+                    tensor.floatBuffer.let { buf ->
+                        val arr = FloatArray(buf.remaining())
+                        buf.get(arr)
+                        arr
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun loadModel(context: Context, modelUri: Uri, onLog: (String) -> Unit): Boolean {
@@ -200,17 +398,36 @@ object OnnxProcessor {
 
                 val tensorInfo = nodeInfo as TensorInfo
                 
-                val supportedTypes = listOf(OnnxJavaType.FLOAT, OnnxJavaType.DOUBLE)
-                if (tensorInfo.type !in supportedTypes) {
-                    onLog("Error: Tipo de input no soportado: ${tensorInfo.type}")
-                    onLog("   Solo se soportan modelos con inputs FLOAT o DOUBLE")
-                    onLog("   Considera convertir el modelo a float32")
+                val supportedTypes = listOf(
+                    OnnxJavaType.FLOAT, 
+                    OnnxJavaType.DOUBLE,
+                    OnnxJavaType.INT8,
+                    OnnxJavaType.INT16,
+                    OnnxJavaType.INT32,
+                    OnnxJavaType.INT64,
+                    OnnxJavaType.UINT8
+                )
+                
+                val tensorType = tensorInfo.type
+                val isFloat16 = tensorType.toString().contains("FLOAT16") || 
+                                tensorType.toString().contains("float16") ||
+                                tensorType.toString().contains("FP16")
+                
+                if (!isFloat16 && tensorType !in supportedTypes) {
+                    onLog("Error: Tipo de input no soportado: ${tensorType}")
+                    onLog("   Tipos soportados: FLOAT, FLOAT16, DOUBLE, INT8, INT16, INT32, INT64, UINT8")
                     closeSessionInternal()
                     return@synchronized false
                 }
                 
-                if (tensorInfo.type == OnnxJavaType.DOUBLE) {
-                    onLog("Nota: El modelo usa DOUBLE, se convertirá desde float")
+                inputType = tensorType
+                
+                when {
+                    isFloat16 -> onLog("Nota: El modelo usa FLOAT16 (FP16), conversion automatica")
+                    tensorType == OnnxJavaType.DOUBLE -> onLog("Nota: El modelo usa DOUBLE, conversion automatica")
+                    tensorType == OnnxJavaType.INT8 -> onLog("Nota: El modelo usa INT8, conversion automatica")
+                    tensorType == OnnxJavaType.UINT8 -> onLog("Nota: El modelo usa UINT8, conversion automatica")
+                    tensorType == OnnxJavaType.INT32 -> onLog("Nota: El modelo usa INT32, conversion automatica")
                 }
 
                 inputShape = tensorInfo.shape
@@ -295,7 +512,7 @@ object OnnxProcessor {
                 }
 
                 val env = getEnvironment()
-                inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
+                inputTensor = createTensorForType(env, floatArray, shape, inputType)
 
                 onLog("Ejecutando inferencia...")
                 outputs = session.run(mapOf(name to inputTensor))
@@ -455,7 +672,7 @@ object OnnxProcessor {
                 }
 
                 val env = getEnvironment()
-                inputTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArray), shape)
+                inputTensor = createTensorForType(env, floatArray, shape, inputType)
 
                 outputs = session.run(mapOf(name to inputTensor))
                 
@@ -528,14 +745,11 @@ object OnnxProcessor {
             val (rawArray, shape) = when (outputValue) {
                 is OnnxTensor -> {
                     val info = outputValue.info
-                    val rawData = try {
-                        outputValue.floatBuffer
-                    } catch (e: Exception) {
-                        onLog("Error: No se puede leer tensor como float")
+                    val arr = extractTensorData(outputValue)
+                    if (arr == null) {
+                        onLog("Error: No se puede leer tensor (tipo: ${info.type})")
                         return null
                     }
-                    val arr = FloatArray(rawData.remaining())
-                    rawData.get(arr)
                     Pair(arr, info.shape)
                 }
                 is OnnxSequence -> {
@@ -553,13 +767,11 @@ object OnnxProcessor {
                         
                         for (item in values) {
                             if (item is OnnxTensor) {
-                                try {
-                                    val buf = item.floatBuffer
-                                    val arr = FloatArray(buf.remaining())
-                                    buf.get(arr)
-                                    allData.addAll(arr.toList())
+                                val tensorData = extractTensorData(item)
+                                if (tensorData != null) {
+                                    allData.addAll(tensorData.toList())
                                     tensorCount++
-                                } catch (e: Exception) { }
+                                }
                             }
                         }
                         
@@ -649,9 +861,7 @@ object OnnxProcessor {
                     when (secondValue) {
                         is OnnxTensor -> {
                             secondOutputShape = secondValue.info.shape
-                            val secondBuffer = secondValue.floatBuffer
-                            secondOutputData = FloatArray(secondBuffer.remaining())
-                            secondBuffer.get(secondOutputData)
+                            secondOutputData = extractTensorData(secondValue)
                         }
                         is OnnxSequence -> {
                             val values = secondValue.value as? List<*>
@@ -664,13 +874,11 @@ object OnnxProcessor {
                                     
                                     for (item in values) {
                                         if (item is OnnxTensor) {
-                                            try {
-                                                val buf = item.floatBuffer
-                                                val arr = FloatArray(buf.remaining())
-                                                buf.get(arr)
-                                                allData.addAll(arr.toList())
+                                            val tensorData = extractTensorData(item)
+                                            if (tensorData != null) {
+                                                allData.addAll(tensorData.toList())
                                                 tensorCount++
-                                            } catch (e: Exception) { }
+                                            }
                                         }
                                     }
                                     
@@ -791,14 +999,11 @@ object OnnxProcessor {
             val (rawArray, shape) = when (outputValue) {
                 is OnnxTensor -> {
                     val info = outputValue.info
-                    val rawData = try {
-                        outputValue.floatBuffer
-                    } catch (e: Exception) {
-                        onLog("Error: No se puede leer tensor como float")
+                    val arr = extractTensorData(outputValue)
+                    if (arr == null) {
+                        onLog("Error: No se puede leer tensor (tipo: ${info.type})")
                         return null
                     }
-                    val arr = FloatArray(rawData.remaining())
-                    rawData.get(arr)
                     Pair(arr, info.shape)
                 }
                 is OnnxSequence -> {
@@ -816,13 +1021,11 @@ object OnnxProcessor {
                         
                         for (item in values) {
                             if (item is OnnxTensor) {
-                                try {
-                                    val buf = item.floatBuffer
-                                    val arr = FloatArray(buf.remaining())
-                                    buf.get(arr)
-                                    allData.addAll(arr.toList())
+                                val tensorData = extractTensorData(item)
+                                if (tensorData != null) {
+                                    allData.addAll(tensorData.toList())
                                     tensorCount++
-                                } catch (e: Exception) { }
+                                }
                             }
                         }
                         
@@ -904,9 +1107,7 @@ object OnnxProcessor {
                     when (secondValue) {
                         is OnnxTensor -> {
                             secondOutputShape = secondValue.info.shape
-                            val secondBuffer = secondValue.floatBuffer
-                            secondOutputData = FloatArray(secondBuffer.remaining())
-                            secondBuffer.get(secondOutputData)
+                            secondOutputData = extractTensorData(secondValue)
                         }
                     }
                 } catch (e: Exception) { }

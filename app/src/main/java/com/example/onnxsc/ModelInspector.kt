@@ -9,6 +9,54 @@ import kotlin.math.min
 
 object ModelInspector {
 
+    private fun parseNamesFromMetadata(value: String): List<String> {
+        val result = mutableListOf<String>()
+        
+        if (value.startsWith("{") && value.endsWith("}")) {
+            val content = value.removeSurrounding("{", "}")
+            val nameEntries = mutableListOf<Pair<Int, String>>()
+            
+            val patterns = listOf(
+                Regex("""(\d+)\s*:\s*['"]([^'"]+)['"]"""),
+                Regex("""['"](\d+)['"]\s*:\s*['"]([^'"]+)['"]"""),
+                Regex("""(\d+)\s*:\s*([^,}]+)""")
+            )
+            
+            for (pattern in patterns) {
+                pattern.findAll(content).forEach { match ->
+                    val idx = match.groupValues[1].toIntOrNull()
+                    val name = match.groupValues[2].trim().removeSurrounding("'").removeSurrounding("\"")
+                    if (idx != null && name.isNotEmpty()) {
+                        nameEntries.add(idx to name)
+                    }
+                }
+                if (nameEntries.isNotEmpty()) break
+            }
+            
+            if (nameEntries.isNotEmpty()) {
+                val sortedNames = nameEntries.sortedBy { it.first }
+                val maxIdx = sortedNames.maxOfOrNull { it.first } ?: 0
+                val namesList = MutableList(maxIdx + 1) { "Clase $it" }
+                sortedNames.forEach { (idx, name) -> 
+                    if (idx < namesList.size) namesList[idx] = name 
+                }
+                return namesList
+            }
+        }
+        
+        if (value.startsWith("[") && value.endsWith("]")) {
+            val content = value.removeSurrounding("[", "]")
+            val names = content.split(",")
+                .map { it.trim().removeSurrounding("'").removeSurrounding("\"") }
+                .filter { it.isNotEmpty() }
+            if (names.isNotEmpty()) {
+                return names
+            }
+        }
+        
+        return result
+    }
+
     data class TensorMetadata(
         val name: String,
         val shape: String,
@@ -372,28 +420,59 @@ object ModelInspector {
                 }
             }
             
-            val namesPattern = Regex("""names["\s:]*\{([^}]+)\}""", RegexOption.IGNORE_CASE)
-            namesPattern.find(header)?.let { match ->
-                val namesContent = match.groupValues[1]
-                val nameEntries = mutableListOf<Pair<Int, String>>()
-                
-                val entryPattern = Regex("""(\d+)["\s:]+['"]?([^'",\}]+)['"]?""")
-                entryPattern.findAll(namesContent).forEach { entry ->
-                    val idx = entry.groupValues[1].toIntOrNull()
-                    val name = entry.groupValues[2].trim()
-                    if (idx != null && name.isNotEmpty()) {
-                        nameEntries.add(idx to name)
+            val namesPatterns = listOf(
+                Regex("""names["\s:]*\{([^}]+)\}""", RegexOption.IGNORE_CASE),
+                Regex(""""names":\s*\{([^}]+)\}"""),
+                Regex("""'names':\s*\{([^}]+)\}"""),
+                Regex("""names\s*=\s*\{([^}]+)\}""")
+            )
+            
+            for (namesPattern in namesPatterns) {
+                val match = namesPattern.find(header)
+                if (match != null) {
+                    val namesContent = match.groupValues[1]
+                    val nameEntries = mutableListOf<Pair<Int, String>>()
+                    
+                    val entryPatterns = listOf(
+                        Regex("""(\d+)\s*:\s*['"]([^'"]+)['"]"""),
+                        Regex("""['"](\d+)['"]\s*:\s*['"]([^'"]+)['"]"""),
+                        Regex("""(\d+)["\s:]+['"]?([^'",\}\s]+)['"]?""")
+                    )
+                    
+                    for (entryPattern in entryPatterns) {
+                        entryPattern.findAll(namesContent).forEach { entry ->
+                            val idx = entry.groupValues[1].toIntOrNull()
+                            val name = entry.groupValues[2].trim()
+                            if (idx != null && name.isNotEmpty() && !name.startsWith("Clase")) {
+                                nameEntries.add(idx to name)
+                            }
+                        }
+                        if (nameEntries.isNotEmpty()) break
+                    }
+                    
+                    if (nameEntries.isNotEmpty()) {
+                        val sortedNames = nameEntries.sortedBy { it.first }
+                        val maxIdx = sortedNames.maxOfOrNull { it.first } ?: 0
+                        val namesList = MutableList(maxIdx + 1) { "Clase $it" }
+                        sortedNames.forEach { (idx, name) -> 
+                            if (idx < namesList.size) namesList[idx] = name 
+                        }
+                        classNames = namesList
+                        break
                     }
                 }
-                
-                if (nameEntries.isNotEmpty()) {
-                    val sortedNames = nameEntries.sortedBy { it.first }
-                    val maxIdx = sortedNames.maxOfOrNull { it.first } ?: 0
-                    val namesList = MutableList(maxIdx + 1) { "Clase $it" }
-                    sortedNames.forEach { (idx, name) -> 
-                        if (idx < namesList.size) namesList[idx] = name 
+            }
+            
+            if (classNames == null) {
+                val listPattern = Regex("""names["\s:]*\[([^\]]+)\]""", RegexOption.IGNORE_CASE)
+                listPattern.find(header)?.let { match ->
+                    val listContent = match.groupValues[1]
+                    val names = listContent.split(",")
+                        .map { it.trim().removeSurrounding("'").removeSurrounding("\"") }
+                        .filter { it.isNotEmpty() }
+                    if (names.isNotEmpty()) {
+                        classNames = names
                     }
-                    classNames = namesList
                 }
             }
             
@@ -433,6 +512,16 @@ object ModelInspector {
                         "imgsz", "input_size" -> {
                             value.toIntOrNull()?.let {
                                 if (it in 64..2048) inputSize = it
+                            }
+                        }
+                        "names" -> {
+                            if (classNames == null) {
+                                try {
+                                    val parsedNames = parseNamesFromMetadata(value)
+                                    if (parsedNames.isNotEmpty()) {
+                                        classNames = parsedNames
+                                    }
+                                } catch (e: Exception) { }
                             }
                         }
                     }

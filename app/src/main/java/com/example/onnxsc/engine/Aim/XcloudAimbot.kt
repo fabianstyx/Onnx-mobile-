@@ -7,6 +7,7 @@ import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.ActionEngine
 import ai.onnxruntime.*
 import kotlin.math.*
+import java.nio.FloatBuffer
 import java.util.Random
 
 object XCloudAimbot {
@@ -94,8 +95,8 @@ object XCloudAimbot {
             val inputSize = if (modelType == "SINGLEPOSE_THUNDER") 256 else 192
             
             val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
-            val inputArray = bitmapToFloatArray(resized, inputSize)
-            val inputTensor = OnnxTensor.createTensor(ortEnv!!, inputArray, longArrayOf(1, inputSize.toLong(), inputSize.toLong(), 3))
+            val inputBuffer = bitmapToFloatBuffer(resized, inputSize)
+            val inputTensor = OnnxTensor.createTensor(ortEnv!!, inputBuffer, longArrayOf(1, inputSize.toLong(), inputSize.toLong(), 3))
 
             val outputs = ortSession!!.run(mapOf(inputName to inputTensor))
             val outputValue = outputs[0].value
@@ -138,20 +139,21 @@ object XCloudAimbot {
         }
     }
 
-    private fun bitmapToFloatArray(bitmap: Bitmap, size: Int): Array<Array<Array<FloatArray>>> {
-        val result = Array(1) { Array(size) { Array(size) { FloatArray(3) } } }
+    private fun bitmapToFloatBuffer(bitmap: Bitmap, size: Int): FloatBuffer {
         val pixels = IntArray(size * size)
         bitmap.getPixels(pixels, 0, size, 0, 0, size, size)
         
+        val buffer = FloatBuffer.allocate(size * size * 3)
         for (y in 0 until size) {
             for (x in 0 until size) {
                 val pixel = pixels[y * size + x]
-                result[0][y][x][0] = ((pixel shr 16) and 0xFF) / 255f
-                result[0][y][x][1] = ((pixel shr 8) and 0xFF) / 255f
-                result[0][y][x][2] = (pixel and 0xFF) / 255f
+                buffer.put(((pixel shr 16) and 0xFF) / 255f)
+                buffer.put(((pixel shr 8) and 0xFF) / 255f)
+                buffer.put((pixel and 0xFF) / 255f)
             }
         }
-        return result
+        buffer.rewind()
+        return buffer
     }
 
     private fun updateFps() {

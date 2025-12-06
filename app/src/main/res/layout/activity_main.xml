@@ -177,6 +177,15 @@
                             android:layout_marginTop="8dp"
                             app:icon="@drawable/ic_save_24"
                             style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnScriptEditor"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Editor de Scripts"
+                            android:layout_marginTop="8dp"
+                            app:icon="@drawable/ic_script"
+                            style="@style/Widget.Material3.Button.TonalButton" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

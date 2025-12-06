@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1E1E1E">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="#252526"
+        app:layout_constraintTop_toTopOf="parent"
+        app:title="Editor de Scripts"
+        app:titleTextColor="#FFFFFF"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="#FFFFFF" />
+
+    <LinearLayout
+        android:id="@+id/scriptSelector"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#2D2D30"
+        app:layout_constraintTop_toBottomOf="@id/toolbar">
+
+        <Spinner
+            android:id="@+id/spinnerScripts"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="#3C3C3C"
+            android:padding="8dp"
+            android:popupBackground="#3C3C3C" />
+
+        <ImageButton
+            android:id="@+id/btnNewScript"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Nuevo script"
+            android:src="@drawable/ic_add"
+            app:tint="#4EC9B0" />
+
+        <ImageButton
+            android:id="@+id/btnDeleteScript"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Eliminar script"
+            android:src="@drawable/ic_delete"
+            app:tint="#F44747" />
+
+    </LinearLayout>
+
+    <HorizontalScrollView
+        android:id="@+id/editorScrollH"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:fillViewport="true"
+        app:layout_constraintTop_toBottomOf="@id/scriptSelector"
+        app:layout_constraintBottom_toTopOf="@id/actionButtons">
+
+        <ScrollView
+            android:id="@+id/editorScrollV"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <EditText
+                android:id="@+id/editScript"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minWidth="1000dp"
+                android:background="#1E1E1E"
+                android:fontFamily="monospace"
+                android:gravity="top|start"
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:padding="12dp"
+                android:scrollHorizontally="true"
+                android:textColor="#D4D4D4"
+                android:textSize="13sp"
+                android:hint="// Escribe tu script aquí..."
+                android:textColorHint="#6A6A6A" />
+
+        </ScrollView>
+
+    </HorizontalScrollView>
+
+    <LinearLayout
+        android:id="@+id/actionButtons"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#252526"
+        app:layout_constraintBottom_toTopOf="@id/logsContainer">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:text="Guardar"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#0E639C"
+            app:icon="@drawable/ic_save"
+            app:iconTint="#FFFFFF" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTest"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="Probar"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#6A9955"
+            app:icon="@drawable/ic_play"
+            app:iconTint="#FFFFFF" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnActivate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="Activar"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#C586C0"
+            app:icon="@drawable/ic_power"
+            app:iconTint="#FFFFFF" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/logsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="200dp"
+        android:orientation="vertical"
+        android:background="#1E1E1E"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="8dp"
+            android:background="#2D2D30">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Logs"
+                android:textColor="#CCCCCC"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/btnClearLogs"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Limpiar logs"
+                android:src="@drawable/ic_clear"
+                app:tint="#808080" />
+
+            <ImageButton
+                android:id="@+id/btnToggleLogs"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Expandir/colapsar logs"
+                android:src="@drawable/ic_expand"
+                app:tint="#808080" />
+
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/logsScroll"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+
+            <TextView
+                android:id="@+id/txtLogs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:padding="8dp"
+                android:textColor="#CCCCCC"
+                android:textSize="11sp"
+                android:textIsSelectable="true" />
+
+        </ScrollView>
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

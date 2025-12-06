@@ -135,24 +135,50 @@ object OnnxProcessor {
                 }
 
                 val env = getEnvironment()
-                val sessionOptions = OrtSession.SessionOptions().apply {
-                    // Optimización extendida para mejor rendimiento
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                    // Más threads para Snapdragon 888+ (8 núcleos)
-                    setIntraOpNumThreads(4)
-                    setInterOpNumThreads(2)
-                    // Habilitar ejecución paralela de grafos
-                    setExecutionMode(OrtSession.SessionOptions.ExecutionMode.PARALLEL)
-                    // Intentar usar NNAPI para aceleración con NPU (Snapdragon)
+                
+                var useNnapi = true
+                var session: OrtSession? = null
+                
+                while (session == null) {
+                    val sessionOptions = OrtSession.SessionOptions().apply {
+                        setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                        setIntraOpNumThreads(4)
+                        setInterOpNumThreads(2)
+                        setExecutionMode(OrtSession.SessionOptions.ExecutionMode.PARALLEL)
+                        
+                        if (useNnapi) {
+                            try {
+                                addNnapi()
+                                onLog("Intentando NNAPI - aceleración con NPU...")
+                            } catch (e: Exception) {
+                                onLog("NNAPI no disponible en este dispositivo")
+                                useNnapi = false
+                            }
+                        }
+                    }
+                    
                     try {
-                        addNnapi()
-                        onLog("NNAPI habilitado - usando NPU del Snapdragon")
-                    } catch (e: Exception) {
-                        onLog("NNAPI no disponible, usando CPU optimizado")
+                        session = env.createSession(modelFile.absolutePath, sessionOptions)
+                        if (useNnapi) {
+                            onLog("NNAPI habilitado - usando NPU del Snapdragon")
+                        } else {
+                            onLog("Usando CPU optimizado (multi-thread)")
+                        }
+                    } catch (e: OrtException) {
+                        if (useNnapi && (e.message?.contains("NNAPI") == true || 
+                                         e.message?.contains("nnapi") == true ||
+                                         e.message?.contains("AddNnapi") == true ||
+                                         e.message?.contains("op_builder") == true)) {
+                            onLog("NNAPI incompatible con este modelo, cambiando a CPU...")
+                            useNnapi = false
+                            sessionOptions.close()
+                        } else {
+                            throw e
+                        }
                     }
                 }
-
-                currentSession = env.createSession(modelFile.absolutePath, sessionOptions)
+                
+                currentSession = session
                 currentModelUri = uriString
 
                 val inputInfo = currentSession!!.inputInfo

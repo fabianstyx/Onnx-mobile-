@@ -19,3 +19,4 @@
 [x] 19. Fix type mismatch in OnnxProcessor.kt - Changed processImageWithConfig parameter from ModelConfig to PostProcessingSettings to match caller and callee
 [x] 20. Setup Android SDK - Installed Android command-line tools, SDK platform-tools, build-tools;34.0.0, platforms;android-34
 [x] 21. Created local.properties with Android SDK path
+[x] 22. Fix NNAPI incompatibility error - Added automatic fallback from NNAPI to CPU when model operations are not supported by NNAPI (e.g., AddNnapiSplit dimension errors)

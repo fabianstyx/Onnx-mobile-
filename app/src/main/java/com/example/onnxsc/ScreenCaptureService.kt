@@ -62,7 +62,8 @@ class ScreenCaptureService : Service() {
             stoppedCallback = null
         }
     }
-
+    
+    private var xCloudAimbotInitialized = false
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -94,6 +95,10 @@ class ScreenCaptureService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+if (!xCloudAimbotInitialized) {
+            XCloudAimbot.init()
+            xCloudAimbotInitialized = true
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -242,10 +247,6 @@ class ScreenCaptureService : Service() {
             isCapturing.set(true)
             setupImageListener()
             
-            mainHandler.post {
-                startedCallback?.invoke()
-            }
-            
         } catch (e: Exception) {
             e.printStackTrace()
             notifyError("Error configurando captura: ${e.message}")
@@ -255,85 +256,90 @@ class ScreenCaptureService : Service() {
     }
     
     private fun setupImageListener() {
-        imageReader?.setOnImageAvailableListener({ reader ->
-            if (!isCapturing.get()) {
-                try { reader.acquireLatestImage()?.close() } catch (e: Exception) { }
-                return@setOnImageAvailableListener
-            }
-            
-            val now = System.currentTimeMillis()
-            if (now - lastProcessedTime.get() < minFrameInterval) {
-                try {
-                    reader.acquireLatestImage()?.close()
-                } catch (e: Exception) { }
-                return@setOnImageAvailableListener
-            }
-            
-            val image = try {
-                reader.acquireLatestImage()
-            } catch (e: Exception) {
-                null
-            }
-            
-            if (image == null) return@setOnImageAvailableListener
-            
-            var bitmap: Bitmap? = null
-            var finalBitmap: Bitmap? = null
-            
+    imageReader?.setOnImageAvailableListener({ reader ->
+        
+        if (!isCapturing.get()) {
+            try { reader.acquireLatestImage()?.close() } catch (e: Exception) { }
+            return@setOnImageAvailableListener
+        }
+        
+        val now = System.currentTimeMillis()
+        if (now - lastProcessedTime.get() < minFrameInterval) {
             try {
-                lastProcessedTime.set(now)
-                
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * captureWidth
-                
-                val bitmapWidth = captureWidth + rowPadding / pixelStride
-                bitmap = Bitmap.createBitmap(
-                    bitmapWidth,
-                    captureHeight,
-                    Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-                image.close()
-                
-                finalBitmap = if (bitmapWidth > captureWidth) {
-                    val bitmapToRecycle = bitmap
-                    Bitmap.createBitmap(bitmapToRecycle, 0, 0, captureWidth, captureHeight).also {
-                        bitmapToRecycle?.recycle()
-                        bitmap = null
-                    }
-                } else {
-                    bitmap
+                reader.acquireLatestImage()?.close()
+            } catch (e: Exception) { }
+            return@setOnImageAvailableListener
+        }
+        
+        val image = try {
+            reader.acquireLatestImage()
+        } catch (e: Exception) {
+            null
+        }
+        
+        if (image == null) return@setOnImageAvailableListener
+        
+        var bitmap: Bitmap? = null
+        var finalBitmap: Bitmap? = null
+        
+        try {
+            lastProcessedTime.set(now)
+            
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * captureWidth
+            
+            val bitmapWidth = captureWidth + rowPadding / pixelStride
+            bitmap = Bitmap.createBitmap(
+                bitmapWidth,
+                captureHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            image.close()
+            
+            finalBitmap = if (bitmapWidth > captureWidth) {
+                val bitmapToRecycle = bitmap
+                Bitmap.createBitmap(bitmapToRecycle, 0, 0, captureWidth, captureHeight).also {
+                    bitmapToRecycle?.recycle()
+                    bitmap = null
                 }
-                
-                val bitmapToSend = finalBitmap
-                finalBitmap = null
-                
-                mainHandler.post {
-                    try {
-                        frameCallback?.invoke(bitmapToSend!!)
-                    } catch (e: Exception) {
-                        try { bitmapToSend?.recycle() } catch (_: Exception) { }
-                    }
-                }
-                
-            } catch (e: OutOfMemoryError) {
-                try { image.close() } catch (_: Exception) { }
-                try { bitmap?.recycle() } catch (_: Exception) { }
-                try { finalBitmap?.recycle() } catch (_: Exception) { }
-                System.gc()
-            } catch (e: Exception) {
-                try { image.close() } catch (_: Exception) { }
-                try { bitmap?.recycle() } catch (_: Exception) { }
-                try { finalBitmap?.recycle() } catch (_: Exception) { }
-                mainHandler.post {
-                    errorCallback?.invoke("Error procesando frame: ${e.message}")
+            } else {
+                bitmap
+            }
+            
+            val bitmapToSend = finalBitmap
+            finalBitmap = null
+            
+            mainHandler.post {
+                try {
+                    frameCallback?.invoke(bitmapToSend!!)
+                    if (ConfigEngine.getBool("xcloud_aim", "enable", false)) {
+    XCloudAimbot.processFrame(bitmapToSend!!)
+}
+                } catch (e: Exception) {
+                    try { bitmapToSend?.recycle() } catch (_: Exception) { }
                 }
             }
-        }, captureHandler)
-    }
+            
+        } catch (e: OutOfMemoryError) {
+            try { image.close() } catch (_: Exception) { }
+            try { bitmap?.recycle() } catch (_: Exception) { }
+            try { finalBitmap?.recycle() } catch (_: Exception) { }
+            System.gc()
+        } catch (e: Exception) {
+            try { image.close() } catch (_: Exception) { }
+            try { bitmap?.recycle() } catch (_: Exception) { }
+            try { finalBitmap?.recycle() } catch (_: Exception) { }
+            mainHandler.post {
+                errorCallback?.invoke("Error procesando frame: ${e.message}")
+            }
+        }
+    }, captureHandler)
+}
+
     
     private fun stopCapture() {
         if (!isCapturing.getAndSet(false)) {
@@ -342,12 +348,6 @@ class ScreenCaptureService : Service() {
         }
         
         cleanup()
-        
-        mainHandler.post {
-            stoppedCallback?.invoke()
-        }
-        
-        stopSelf()
     }
     
     private fun cleanup() {
@@ -379,7 +379,8 @@ class ScreenCaptureService : Service() {
         } catch (e: Exception) { }
         captureThread = null
         captureHandler = null
-        
+        XCloudAimbot.destroy()  // solo aquí
+        xCloudAimbotInitialized = false
         isCapturing.set(false)
     }
     
@@ -426,8 +427,8 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onDestroy() {
-        cleanup()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        super.onDestroy()
-    }
+    cleanup()
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    super.onDestroy()
+      }
 }

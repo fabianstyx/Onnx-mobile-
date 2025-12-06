@@ -2,7 +2,7 @@ package com.example.onnxsc.engine
 
 import android.os.Handler
 import android.os.Looper
-import com.example.onnxsc.PostProcessor
+import com.example.onnxsc.Detection
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -14,8 +14,8 @@ class InferenceInputHandler(private val scriptRuntime: ScriptRuntime) {
     }
     
     interface DetectionFilter {
-        fun shouldProcess(detection: PostProcessor.Detection): Boolean
-        fun selectTarget(detections: List<PostProcessor.Detection>): PostProcessor.Detection?
+        fun shouldProcess(detection: Detection): Boolean
+        fun selectTarget(detections: List<Detection>): Detection?
     }
     
     var detectionFilter: DetectionFilter? = null
@@ -39,7 +39,7 @@ class InferenceInputHandler(private val scriptRuntime: ScriptRuntime) {
         targetClassNames = classNames?.map { it.lowercase() }?.toSet()
     }
     
-    fun processDetections(detections: List<PostProcessor.Detection>) {
+    fun processDetections(detections: List<Detection>) {
         if (!isEnabled.get()) return
         if (detections.isEmpty()) {
             processPrediction(createEmptyPrediction())
@@ -68,7 +68,7 @@ class InferenceInputHandler(private val scriptRuntime: ScriptRuntime) {
         }
     }
     
-    fun processAllDetections(detections: List<PostProcessor.Detection>) {
+    fun processAllDetections(detections: List<Detection>) {
         if (!isEnabled.get()) return
         
         val now = System.currentTimeMillis()
@@ -82,19 +82,19 @@ class InferenceInputHandler(private val scriptRuntime: ScriptRuntime) {
             }
     }
     
-    private fun matchesTargetFilter(detection: PostProcessor.Detection): Boolean {
+    private fun matchesTargetFilter(detection: Detection): Boolean {
         val classIds = targetClassIds
         val classNames = targetClassNames
         
         if (classIds == null && classNames == null) return true
         
         if (classIds != null && detection.classId in classIds) return true
-        if (classNames != null && detection.label.lowercase() in classNames) return true
+        if (classNames != null && detection.className.lowercase() in classNames) return true
         
         return false
     }
     
-    private fun selectBestTarget(detections: List<PostProcessor.Detection>): PostProcessor.Detection? {
+    private fun selectBestTarget(detections: List<Detection>): Detection? {
         if (detections.isEmpty()) return null
         
         val filter = detectionFilter
@@ -105,19 +105,21 @@ class InferenceInputHandler(private val scriptRuntime: ScriptRuntime) {
         return detections.maxByOrNull { it.confidence }
     }
     
-    private fun detectionToPrediction(detection: PostProcessor.Detection, isTarget: Boolean): Prediction {
-        val centerX = detection.x + detection.width / 2
-        val centerY = detection.y + detection.height / 2
+    private fun detectionToPrediction(detection: Detection, isTarget: Boolean): Prediction {
+        val width = detection.bbox.width()
+        val height = detection.bbox.height()
+        val centerX = detection.bbox.left + width / 2
+        val centerY = detection.bbox.top + height / 2
         
         return Prediction(
             target = isTarget,
             x = centerX,
             y = centerY,
             confidence = detection.confidence,
-            className = detection.label,
+            className = detection.className,
             classId = detection.classId,
-            width = detection.width,
-            height = detection.height
+            width = width,
+            height = height
         )
     }
     

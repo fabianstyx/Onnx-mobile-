@@ -15,3 +15,4 @@
 [x] 15. System Overlay Permission - Added SYSTEM_ALERT_WINDOW permission to AndroidManifest.xml
 [x] 16. Detection Parcelable - Made Detection class Parcelable for passing between services
 [x] 17. MainActivity Floating Overlay Integration - Updated MainActivity to request overlay permission and use floating overlay for status (FPS, REC, detections) and bounding boxes over other apps
+[x] 18. Fix InferenceInputHandler.kt - Changed import from PostProcessor to Detection class, fixed property references (label->className, x/y/width/height->bbox properties)

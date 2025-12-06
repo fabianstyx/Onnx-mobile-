@@ -72,11 +72,16 @@ class ScreenCaptureService : Service() {
     
     private val isCapturing = AtomicBoolean(false)
     private val lastProcessedTime = AtomicLong(0)
-    private val minFrameInterval = 33L
+    private val minFrameInterval = 16L // ~60 FPS target (optimizado para Snapdragon 888+)
     
     private var screenWidth = 0
     private var screenHeight = 0
     private var screenDensity = 0
+    private var captureWidth = 0
+    private var captureHeight = 0
+    
+    // Optimización: capturar a resolución reducida para mejor rendimiento
+    private val captureScale = 0.75f // 75% de resolución = mejor FPS sin perder calidad de detección
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -200,20 +205,26 @@ class ScreenCaptureService : Service() {
                 screenDensity = metrics.densityDpi
             }
             
-            captureThread = HandlerThread("ScreenCapture").apply { start() }
+            // Optimización: capturar a resolución reducida para mejor FPS
+            captureWidth = (screenWidth * captureScale).toInt()
+            captureHeight = (screenHeight * captureScale).toInt()
+            
+            // Thread de alta prioridad para captura
+            captureThread = HandlerThread("ScreenCapture", android.os.Process.THREAD_PRIORITY_DISPLAY).apply { start() }
             captureHandler = Handler(captureThread!!.looper)
             
+            // Buffer de 3 imágenes para pipeline más fluido
             imageReader = ImageReader.newInstance(
-                screenWidth, 
-                screenHeight, 
+                captureWidth, 
+                captureHeight, 
                 PixelFormat.RGBA_8888, 
-                2
+                3
             )
             
             virtualDisplay = projection.createVirtualDisplay(
                 "OnnxScreenCapture",
-                screenWidth, 
-                screenHeight, 
+                captureWidth, 
+                captureHeight, 
                 screenDensity,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader?.surface,
@@ -276,20 +287,20 @@ class ScreenCaptureService : Service() {
                 val buffer = planes[0].buffer
                 val pixelStride = planes[0].pixelStride
                 val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * screenWidth
+                val rowPadding = rowStride - pixelStride * captureWidth
                 
-                val bitmapWidth = screenWidth + rowPadding / pixelStride
+                val bitmapWidth = captureWidth + rowPadding / pixelStride
                 bitmap = Bitmap.createBitmap(
                     bitmapWidth,
-                    screenHeight,
+                    captureHeight,
                     Bitmap.Config.ARGB_8888
                 )
                 bitmap.copyPixelsFromBuffer(buffer)
                 image.close()
                 
-                finalBitmap = if (bitmapWidth > screenWidth) {
+                finalBitmap = if (bitmapWidth > captureWidth) {
                     val bitmapToRecycle = bitmap
-                    Bitmap.createBitmap(bitmapToRecycle, 0, 0, screenWidth, screenHeight).also {
+                    Bitmap.createBitmap(bitmapToRecycle, 0, 0, captureWidth, captureHeight).also {
                         bitmapToRecycle?.recycle()
                         bitmap = null
                     }

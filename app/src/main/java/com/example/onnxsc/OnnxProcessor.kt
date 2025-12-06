@@ -136,8 +136,20 @@ object OnnxProcessor {
 
                 val env = getEnvironment()
                 val sessionOptions = OrtSession.SessionOptions().apply {
-                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-                    setIntraOpNumThreads(2)
+                    // Optimización extendida para mejor rendimiento
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    // Más threads para Snapdragon 888+ (8 núcleos)
+                    setIntraOpNumThreads(4)
+                    setInterOpNumThreads(2)
+                    // Habilitar ejecución paralela de grafos
+                    setExecutionMode(OrtSession.SessionOptions.ExecutionMode.PARALLEL)
+                    // Intentar usar NNAPI para aceleración con NPU (Snapdragon)
+                    try {
+                        addNnapi()
+                        onLog("NNAPI habilitado - usando NPU del Snapdragon")
+                    } catch (e: Exception) {
+                        onLog("NNAPI no disponible, usando CPU optimizado")
+                    }
                 }
 
                 currentSession = env.createSession(modelFile.absolutePath, sessionOptions)

@@ -142,7 +142,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Cargar del Modelo (detectar clases)"
-                    style="@style/Widget.Material3.Button.FilledButton" />
+                    style="@style/Widget.Material3.Button" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLoadCoco"
@@ -150,7 +150,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="Cargar Labels COCO (80 clases)"
-                    style="@style/Widget.Material3.Button.TonalButton" />
+                    style="@style/Widget.Material3.Button.ElevatedButton" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLoadImagenet"
@@ -158,7 +158,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="Cargar Labels ImageNet (1000 clases)"
-                    style="@style/Widget.Material3.Button.TonalButton" />
+                    style="@style/Widget.Material3.Button.ElevatedButton" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnClearLabels"

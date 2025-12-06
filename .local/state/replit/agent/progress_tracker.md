@@ -28,3 +28,7 @@
 [x] 28. Fix PickleLoader.kt build error - Removed pyrolite dependency, created stub implementation (pickle loading disabled but interface preserved for future use)
 [x] 29. Re-setup Android SDK and local.properties for Replit environment
 [x] 30. Build successful - APK generated at app/build/outputs/apk/debug/app-debug.apk (~100MB)
+[x] 31. Fix Material3 style error - Changed Widget.Material3.Button.FilledButton to Widget.Material3.Button (default filled style)
+[x] 32. Re-installed Android SDK (platform-tools, build-tools;34.0.0, platforms;android-34)
+[x] 33. Re-created local.properties with Android SDK path
+[x] 34. Build successful - APK generated at app/build/outputs/apk/debug/app-debug.apk (~100MB)

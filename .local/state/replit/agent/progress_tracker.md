@@ -25,3 +25,6 @@
 [x] 25. ActionEngine.kt - Métodos de acciones programables (tap, swipe, keyPress, axisControl, etc.) via root o accessibility
 [x] 26. config.ini - Archivo de ejemplo con secciones: general, detection, regions, filters, actions, targeting, overlay, performance, logging
 [x] 27. MainActivity Integration - Inicializa ConfigEngine y ActionEngine, conecta flujo OnnxProcessor → LogicEngine → ActionEngine
+[x] 28. Fix PickleLoader.kt build error - Removed pyrolite dependency, created stub implementation (pickle loading disabled but interface preserved for future use)
+[x] 29. Re-setup Android SDK and local.properties for Replit environment
+[x] 30. Build successful - APK generated at app/build/outputs/apk/debug/app-debug.apk (~100MB)

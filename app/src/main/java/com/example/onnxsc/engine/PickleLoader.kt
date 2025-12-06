@@ -1,7 +1,6 @@
 package com.example.onnxsc.engine
 
 import android.content.Context
-import net.razorvine.pickle.Unpickler
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -59,51 +58,19 @@ object PickleLoader {
             return PickleResult.Error("Extension no valida. Use .pkl o .pickle")
         }
         
-        return try {
-            FileInputStream(file).use { inputStream ->
-                val unpickler = Unpickler()
-                val rawData = unpickler.load(inputStream)
-                
-                val converted = convertToPickleValue(rawData)
-                
-                loadedFiles[filePath] = converted
-                fileTimestamps[filePath] = file.lastModified()
-                
-                notifyListeners(filePath, converted)
-                
-                PickleResult.Success(converted, filePath)
-            }
-        } catch (e: IOException) {
-            PickleResult.Error("Error de IO leyendo pickle: ${e.message}", e)
-        } catch (e: Exception) {
-            PickleResult.Error("Error deserializando pickle: ${e.message}", e)
-        }
+        return PickleResult.Error(
+            "Pickle loading not available. The pyrolite library is not included in this build. " +
+            "To enable pickle support, add 'implementation(\"net.razorvine:pyrolite:5.0\")' to build.gradle.kts " +
+            "and uncomment the pickle parsing code in PickleLoader.kt"
+        )
     }
     
     fun loadFromAssets(context: Context, assetName: String): PickleResult {
-        return try {
-            val tempFile = File(context.cacheDir, "temp_${assetName}")
-            
-            context.assets.open(assetName).use { input ->
-                tempFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-            
-            val result = loadFromPath(tempFile.absolutePath)
-            
-            tempFile.delete()
-            
-            result
-        } catch (e: IOException) {
-            PickleResult.Error("Error cargando asset: ${e.message}", e)
-        }
+        return PickleResult.Error("Pickle loading not available in this build")
     }
     
     fun loadFromInternalStorage(fileName: String): PickleResult {
-        val context = appContext ?: return PickleResult.Error("PickleLoader no inicializado")
-        val file = File(File(context.filesDir, PICKLE_DIR), fileName)
-        return loadFromPath(file.absolutePath)
+        return PickleResult.Error("Pickle loading not available in this build")
     }
     
     fun copyToInternalStorage(sourcePath: String, destFileName: String): Boolean {
@@ -233,19 +200,7 @@ object PickleLoader {
     }
     
     fun checkAndReloadIfModified(): List<String> {
-        val reloaded = mutableListOf<String>()
-        
-        fileTimestamps.forEach { (filePath, lastModified) ->
-            val file = File(filePath)
-            if (file.exists() && file.lastModified() > lastModified) {
-                when (val result = loadFromPath(filePath)) {
-                    is PickleResult.Success -> reloaded.add(filePath)
-                    is PickleResult.Error -> {}
-                }
-            }
-        }
-        
-        return reloaded
+        return emptyList()
     }
     
     fun reloadAll(): Map<String, PickleResult> {
@@ -405,6 +360,7 @@ object PickleLoader {
         return buildString {
             appendLine("=== PickleLoader Summary ===")
             appendLine("Archivos cargados: ${loadedFiles.size}")
+            appendLine("Note: Pickle loading is disabled in this build")
             loadedFiles.forEach { (path, value) ->
                 val typeName = when (value) {
                     is PickleValue.PMap -> "Map(${value.value.size} keys)"

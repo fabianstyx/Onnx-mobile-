@@ -65,7 +65,4 @@ dependencies {
     
     // Gson para JSON
     implementation("com.google.code.gson:gson:2.10.1")
-    
-    // Pyrolite para deserializar archivos pickle de Python
-    implementation("net.razorvine:pyrolite:5.0")
 }

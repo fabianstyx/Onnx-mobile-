@@ -138,9 +138,17 @@
                     android:layout_marginBottom="12dp" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnLoadFromModel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Cargar del Modelo (detectar clases)"
+                    style="@style/Widget.Material3.Button.FilledButton" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLoadCoco"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:text="Cargar Labels COCO (80 clases)"
                     style="@style/Widget.Material3.Button.TonalButton" />
 

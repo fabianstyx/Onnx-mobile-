@@ -516,8 +516,22 @@ class FloatingOverlayService : Service() {
             val effectiveSrcWidth = if (sourceWidth > 0) sourceWidth else width
             val effectiveSrcHeight = if (sourceHeight > 0) sourceHeight else height
             
-            val scaleX = width.toFloat() / effectiveSrcWidth
-            val scaleY = height.toFloat() / effectiveSrcHeight
+            val srcAspect = effectiveSrcWidth.toFloat() / effectiveSrcHeight.toFloat()
+            val dstAspect = width.toFloat() / height.toFloat()
+            
+            val scale: Float
+            val offsetX: Float
+            val offsetY: Float
+            
+            if (srcAspect > dstAspect) {
+                scale = width.toFloat() / effectiveSrcWidth.toFloat()
+                offsetX = 0f
+                offsetY = (height - effectiveSrcHeight * scale) / 2f
+            } else {
+                scale = height.toFloat() / effectiveSrcHeight.toFloat()
+                offsetX = (width - effectiveSrcWidth * scale) / 2f
+                offsetY = 0f
+            }
 
             for ((index, det) in detections.withIndex()) {
                 if (det.bbox.width() <= 0 || det.bbox.height() <= 0) continue
@@ -527,10 +541,10 @@ class FloatingOverlayService : Service() {
                 bgPaint.color = (color and 0x00FFFFFF) or 0xDD000000.toInt()
 
                 val scaledBox = RectF(
-                    (det.bbox.left * scaleX).coerceIn(5f, width.toFloat() - 5f),
-                    (det.bbox.top * scaleY).coerceIn(5f, height.toFloat() - 5f),
-                    (det.bbox.right * scaleX).coerceIn(5f, width.toFloat() - 5f),
-                    (det.bbox.bottom * scaleY).coerceIn(5f, height.toFloat() - 5f)
+                    (det.bbox.left * scale + offsetX).coerceIn(5f, width.toFloat() - 5f),
+                    (det.bbox.top * scale + offsetY).coerceIn(5f, height.toFloat() - 5f),
+                    (det.bbox.right * scale + offsetX).coerceIn(5f, width.toFloat() - 5f),
+                    (det.bbox.bottom * scale + offsetY).coerceIn(5f, height.toFloat() - 5f)
                 )
                 
                 if (scaledBox.width() <= 10 || scaledBox.height() <= 10) continue

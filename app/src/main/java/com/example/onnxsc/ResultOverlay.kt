@@ -276,12 +276,18 @@ object ResultOverlay {
             
             val scaleX = width.toFloat() / effectiveSrcWidth
             val scaleY = height.toFloat() / effectiveSrcHeight
+            val uniformScale = kotlin.math.min(scaleX, scaleY)
+            
+            val scaledSrcWidth = effectiveSrcWidth * uniformScale
+            val scaledSrcHeight = effectiveSrcHeight * uniformScale
+            val offsetX = (width - scaledSrcWidth) / 2f
+            val offsetY = (height - scaledSrcHeight) / 2f
 
             val scaledBox = RectF(
-                (bbox.left * scaleX).coerceIn(5f, width.toFloat() - 5f),
-                (bbox.top * scaleY).coerceIn(5f, height.toFloat() - 5f),
-                (bbox.right * scaleX).coerceIn(5f, width.toFloat() - 5f),
-                (bbox.bottom * scaleY).coerceIn(5f, height.toFloat() - 5f)
+                (bbox.left * uniformScale + offsetX).coerceIn(5f, width.toFloat() - 5f),
+                (bbox.top * uniformScale + offsetY).coerceIn(5f, height.toFloat() - 5f),
+                (bbox.right * uniformScale + offsetX).coerceIn(5f, width.toFloat() - 5f),
+                (bbox.bottom * uniformScale + offsetY).coerceIn(5f, height.toFloat() - 5f)
             )
             
             if (scaledBox.width() <= 10 || scaledBox.height() <= 10) return

@@ -7,6 +7,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import com.example.onnxsc.OnnxProcessor
+import com.example.onnxsc.PostProcessor
 import com.example.onnxsc.config.ModelConfigManager
 import com.example.onnxsc.databinding.FragmentConfigLabelsBinding
 
@@ -32,6 +34,10 @@ class ConfigLabelsFragment : Fragment() {
     }
     
     private fun setupButtons() {
+        binding.btnLoadFromModel.setOnClickListener {
+            loadLabelsFromModel()
+        }
+        
         binding.btnLoadCoco.setOnClickListener {
             loadCocoLabels()
         }
@@ -43,6 +49,26 @@ class ConfigLabelsFragment : Fragment() {
         binding.btnClearLabels.setOnClickListener {
             binding.editLabels.setText("")
             updateLabelCount()
+        }
+    }
+    
+    private fun loadLabelsFromModel() {
+        val numClasses = OnnxProcessor.getNumClasses()
+        if (numClasses > 0) {
+            val genericLabels = PostProcessor.generateGenericClassNames(numClasses)
+            binding.editLabels.setText(genericLabels.joinToString("\n"))
+            updateLabelCount()
+            android.widget.Toast.makeText(
+                requireContext(),
+                "Generadas $numClasses clases del modelo",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            android.widget.Toast.makeText(
+                requireContext(),
+                "Primero ejecuta el modelo para detectar el numero de clases",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
         }
     }
     

@@ -44,6 +44,37 @@ data class InferenceResult(
 
 enum class TensorLayout { NCHW, NHWC, UNKNOWN }
 
+data class ModelInfo(
+    val inputShape: LongArray?,
+    val inputLayout: TensorLayout,
+    val outputFormat: OutputFormat,
+    val outputShape: LongArray?,
+    val numClasses: Int,
+    val isLoaded: Boolean
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as ModelInfo
+        return inputShape?.contentEquals(other.inputShape) ?: (other.inputShape == null) &&
+                inputLayout == other.inputLayout &&
+                outputFormat == other.outputFormat &&
+                outputShape?.contentEquals(other.outputShape) ?: (other.outputShape == null) &&
+                numClasses == other.numClasses &&
+                isLoaded == other.isLoaded
+    }
+
+    override fun hashCode(): Int {
+        var result = inputShape?.contentHashCode() ?: 0
+        result = 31 * result + inputLayout.hashCode()
+        result = 31 * result + outputFormat.hashCode()
+        result = 31 * result + (outputShape?.contentHashCode() ?: 0)
+        result = 31 * result + numClasses
+        result = 31 * result + isLoaded.hashCode()
+        return result
+    }
+}
+
 object OnnxProcessor {
 
     private var ortEnv: OrtEnvironment? = null
@@ -53,6 +84,9 @@ object OnnxProcessor {
     private var inputShape: LongArray? = null
     private var inputLayout: TensorLayout = TensorLayout.NCHW
     private var inputType: OnnxJavaType = OnnxJavaType.FLOAT
+    private var cachedOutputShape: LongArray? = null
+    private var cachedOutputFormat: OutputFormat = OutputFormat.UNKNOWN
+    private var cachedNumClasses: Int = 0
     private val lock = Any()
 
     private fun flattenArray(arr: Any): FloatArray {
@@ -924,6 +958,10 @@ object OnnxProcessor {
             val format = PostProcessor.detectOutputFormat(shape, outputs.size())
             onLog("Formato detectado: $format")
 
+            cachedOutputShape = shape.copyOf()
+            cachedOutputFormat = format
+            cachedNumClasses = PostProcessor.getNumClassesFromShape(shape, format, secondOutputShape)
+
             val detections = if (format == OutputFormat.SSD && secondOutputData != null) {
                 PostProcessor.processSSDMultiOutput(
                     boxes = rawArray,
@@ -1115,6 +1153,10 @@ object OnnxProcessor {
 
             val format = PostProcessor.detectOutputFormat(shape, outputs.size())
 
+            cachedOutputShape = shape.copyOf()
+            cachedOutputFormat = format
+            cachedNumClasses = PostProcessor.getNumClassesFromShape(shape, format, secondOutputShape)
+
             val detections = if (format == OutputFormat.SSD && secondOutputData != null) {
                 PostProcessor.processSSDMultiOutput(
                     boxes = rawArray,
@@ -1190,7 +1232,23 @@ object OnnxProcessor {
         inputName = null
         inputShape = null
         inputLayout = TensorLayout.NCHW
+        cachedOutputShape = null
+        cachedOutputFormat = OutputFormat.UNKNOWN
+        cachedNumClasses = 0
     }
 
     fun isModelLoaded(): Boolean = synchronized(lock) { currentSession != null }
+
+    fun getModelInfo(): ModelInfo = synchronized(lock) {
+        ModelInfo(
+            inputShape = inputShape?.copyOf(),
+            inputLayout = inputLayout,
+            outputFormat = cachedOutputFormat,
+            outputShape = cachedOutputShape?.copyOf(),
+            numClasses = cachedNumClasses,
+            isLoaded = currentSession != null
+        )
+    }
+
+    fun getNumClasses(): Int = synchronized(lock) { cachedNumClasses }
 }

@@ -83,11 +83,13 @@ object PostProcessor {
                 when {
                     dim1 in 100..900 && dim2 >= 4 && dim2 <= 100 -> OutputFormat.RT_DETR
                     
-                    dim2 >= 5 && dim2 <= 165 && dim1 > 100 -> OutputFormat.YOLO_V5_V7
+                    dim1 >= 4 && dim2 > 1000 -> OutputFormat.YOLO_V8_V11
                     
-                    dim1 in 4..84 && dim2 > 100 -> OutputFormat.YOLO_V8_V11
+                    dim2 >= 5 && dim2 <= 500 && dim1 > 100 -> OutputFormat.YOLO_V5_V7
                     
-                    dim1 > 100 && dim2 >= 5 && dim2 <= 165 -> OutputFormat.YOLO_V5_V7
+                    dim1 in 4..500 && dim2 > 100 -> OutputFormat.YOLO_V8_V11
+                    
+                    dim1 > 100 && dim2 >= 5 && dim2 <= 500 -> OutputFormat.YOLO_V5_V7
                     
                     dim1 > 100 && dim2 > 4 -> OutputFormat.RT_DETR
                     
@@ -587,5 +589,50 @@ object PostProcessor {
         val exps = FloatArray(input.size) { exp((input[it] - maxVal).toDouble()).toFloat() }
         val sum = exps.sum()
         return if (sum > 0) FloatArray(input.size) { exps[it] / sum } else input
+    }
+
+    fun getNumClassesFromShape(shape: LongArray, format: OutputFormat, secondaryShape: LongArray? = null): Int {
+        return when (format) {
+            OutputFormat.CLASSIFICATION -> {
+                if (shape.size == 2) shape[1].toInt() else 0
+            }
+            OutputFormat.YOLO_V5_V7 -> {
+                if (shape.size == 3) {
+                    val numFields = shape[2].toInt()
+                    (numFields - 5).coerceAtLeast(1)
+                } else 0
+            }
+            OutputFormat.YOLO_V8_V11 -> {
+                if (shape.size == 3) {
+                    val numFields = shape[1].toInt()
+                    (numFields - 4).coerceAtLeast(1)
+                } else 0
+            }
+            OutputFormat.RT_DETR -> {
+                if (shape.size == 3) {
+                    val numFields = shape[2].toInt()
+                    (numFields - 4).coerceAtLeast(1)
+                } else 0
+            }
+            OutputFormat.SSD -> {
+                if (secondaryShape != null) {
+                    when (secondaryShape.size) {
+                        3 -> secondaryShape[2].toInt()
+                        2 -> secondaryShape[1].toInt()
+                        else -> 80
+                    }
+                } else {
+                    80
+                }
+            }
+            OutputFormat.SEGMENTATION -> {
+                if (shape.size == 4) shape[1].toInt() else 0
+            }
+            OutputFormat.UNKNOWN -> 0
+        }
+    }
+
+    fun generateGenericClassNames(numClasses: Int): List<String> {
+        return (0 until numClasses).map { "Clase $it" }
     }
 }

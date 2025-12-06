@@ -1,47 +1,62 @@
-# Persisted Information - ONNX Screen Capture Android App
+# ONNX Screen Capture - Estado Actualizado
 
-## Current Task Status: COMPLETED
-All build fixes and drawVisuals functionality have been completed.
+## Última Sesión (2025-12-06)
+Se completaron TODAS las correcciones de bugs en XcloudAimbot.kt y config.ini.
 
-## Changes Made
+## Cambios Realizados Esta Sesión
 
-### Build Error Fixes (from GitHub Actions)
-**ScreenCaptureService.kt:**
-- Added imports for `ConfigEngine` and `XCloudAimbot`
-- Updated `XCloudAimbot.init(this)` to pass context
+### XcloudAimbot.kt - REESCRITO COMPLETAMENTE
+Archivo: `app/src/main/java/com/example/onnxsc/engine/Aim/XcloudAimbot.kt`
 
-**XcloudAimbot.kt:**
-- Added `import java.util.Random` 
-- Fixed PointF division issue
-- Changed `smoothMoveTo()` to `ActionEngine.swipe()` 
-- Added `.toFloat()` for tap() parameters
+**Bugs corregidos:**
+- Todas las referencias de config keys ahora coinciden con config.ini
+- `min_keypoint_confidence` → `keypoint_confidence`  
+- `smoothing_percent` → `aim_speed_percent`
+- `triggerbot` → `auto_shoot`
+- `trigger_delay_ms` → `trigger_delay_before_shoot`
 
-### drawVisuals Functionality (COMPLETED)
+**Nuevas funciones:**
+- `filterPosesInIgnoreRegion()` - Filtra poses en región del jugador
+- `bitmapToFloatArray()` - Tensor NHWC para MoveNet
+- Burst mode, Smart slowdown, FPS compensation
+- Target switch cooldown, Prediction con velocity history
 
-**FloatingOverlayService.kt - Added:**
-- `getInstance()` static method
-- `ACTION_UPDATE_POSE` and related extras
-- `updatePoseVisuals()` and `clearPoseVisuals()` static methods
-- In `BboxOverlayView`: pose variables, `skeletonConnections`, `updatePose()`, `drawPoseVisuals()`
-- Draws: FOV circle, skeleton lines (cyan), keypoint dots (green), prediction line (magenta), aim crosshair (red)
+### config.ini - ACTUALIZADO CON 100+ PARÁMETROS
+Archivo: `app/src/main/assets/config.ini`
+Sección `[xcloud_aim]` completa con todas las opciones del JS original.
 
-**XcloudAimbot.kt - Updated:**
-- Added `appContext: Context?` variable
-- Modified `init()` to accept Context
-- Added `drawVisuals()` that calls `FloatingOverlayService.updatePoseVisuals()`
-- `destroy()` clears pose visuals
+## PENDIENTE: Explicar al Usuario Cómo Usar XCloudAimbot
 
-**ScreenCaptureService.kt - Updated:**
-- Changed `XCloudAimbot.init()` to `XCloudAimbot.init(this)` to pass context
+### Uso de XCloudAimbot.kt:
 
-## Files Modified
-1. `app/src/main/java/com/example/onnxsc/ScreenCaptureService.kt`
-2. `app/src/main/java/com/example/onnxsc/engine/Aim/XcloudAimbot.kt`
-3. `app/src/main/java/com/example/onnxsc/FloatingOverlayService.kt`
+1. **Preparación:**
+   - Modelo MoveNet en `/sdcard/ONNX/movenet_singlepose_lightning.onnx`
+   
+2. **Config.ini:**
+   ```ini
+   [xcloud_aim]
+   enable = @TOGGLE:true
+   model_path = /sdcard/ONNX/movenet_singlepose_lightning.onnx
+   ```
 
-## Build Status
-- Replit has memory constraints for Android builds
-- GitHub Actions should work with all fixes applied
+3. **Flujo:**
+   - `XCloudAimbot.init(context)` - Auto en ScreenCaptureService
+   - `XCloudAimbot.processFrame(bitmap)` - Cada frame
+   - `XCloudAimbot.setAimActive(true/false)` - Toggle
+   - `XCloudAimbot.destroy()` - Cleanup
+
+4. **Parámetros clave:**
+   - `fov_radius`: 136px default
+   - `aim_point`: nose, left_eye, etc.
+   - `aim_speed_percent`: 10-100%
+   - `smart_slowdown_enabled`: true
+   - `prediction_enabled`: true
+   - `auto_shoot`: false (activar para disparo auto)
 
 ## Progress Tracker
-`.local/state/replit/agent/progress_tracker.md` - 36 items marked complete
+`.local/state/replit/agent/progress_tracker.md` - 39 items complete
+
+## Usuario Indicó
+- Build se maneja en GitHub, no en Replit
+- Solo corrección de código requerida
+- Explicar cómo usar XCloudAimbot.kt

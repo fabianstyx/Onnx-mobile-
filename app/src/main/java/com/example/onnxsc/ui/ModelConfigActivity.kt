@@ -1,5 +1,7 @@
 package com.example.onnxsc.ui
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -15,15 +17,37 @@ import com.google.android.material.tabs.TabLayoutMediator
 class ModelConfigActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityModelConfigBinding
+    private var modelName: String = ""
     
     private val tabTitles = listOf("General", "Labels", "Instrucciones")
+    
+    companion object {
+        private const val EXTRA_MODEL_NAME = "model_name"
+        
+        fun createIntent(context: Context, modelName: String): Intent {
+            return Intent(context, ModelConfigActivity::class.java).apply {
+                putExtra(EXTRA_MODEL_NAME, modelName)
+            }
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityModelConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
-        ModelConfigManager.loadConfig(this)
+        modelName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: ""
+        
+        if (modelName.isEmpty()) {
+            Toast.makeText(this, "No hay modelo seleccionado", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+        
+        val hasExistingConfig = ModelConfigManager.loadConfig(this, modelName)
+        if (!hasExistingConfig) {
+            Logger.info("Creando configuracion por defecto para: $modelName")
+        }
         
         setupToolbar()
         setupViewPager()
@@ -31,6 +55,7 @@ class ModelConfigActivity : AppCompatActivity() {
     }
     
     private fun setupToolbar() {
+        binding.toolbar.title = "Config: $modelName"
         binding.toolbar.setNavigationOnClickListener {
             onBackPressedWithCheck()
         }
@@ -57,12 +82,12 @@ class ModelConfigActivity : AppCompatActivity() {
     private fun saveConfiguration() {
         collectConfigFromFragments()
         
-        if (ModelConfigManager.saveConfig(this)) {
+        if (ModelConfigManager.saveConfig(this, modelName)) {
             Toast.makeText(this, "Configuracion guardada", Toast.LENGTH_SHORT).show()
-            Logger.success("Configuracion del modelo guardada")
+            Logger.success("Configuracion guardada: $modelName")
         } else {
             Toast.makeText(this, "Error al guardar configuracion", Toast.LENGTH_SHORT).show()
-            Logger.error("Error guardando configuracion del modelo")
+            Logger.error("Error guardando configuracion: $modelName")
         }
     }
     
@@ -71,10 +96,10 @@ class ModelConfigActivity : AppCompatActivity() {
             .setTitle("Restaurar Configuracion")
             .setMessage("Se restaurara la configuracion original. ¿Continuar?")
             .setPositiveButton("Restaurar") { _, _ ->
-                if (ModelConfigManager.restoreOriginalConfig(this)) {
+                if (ModelConfigManager.restoreOriginalConfig()) {
                     refreshFragments()
                     Toast.makeText(this, "Configuracion restaurada", Toast.LENGTH_SHORT).show()
-                    Logger.info("Configuracion del modelo restaurada")
+                    Logger.info("Configuracion restaurada: $modelName")
                 } else {
                     Toast.makeText(this, "Error al restaurar", Toast.LENGTH_SHORT).show()
                 }
@@ -104,6 +129,8 @@ class ModelConfigActivity : AppCompatActivity() {
     }
     
     private fun onBackPressedWithCheck() {
+        collectConfigFromFragments()
+        
         if (ModelConfigManager.hasUnsavedChanges()) {
             AlertDialog.Builder(this)
                 .setTitle("Cambios sin guardar")

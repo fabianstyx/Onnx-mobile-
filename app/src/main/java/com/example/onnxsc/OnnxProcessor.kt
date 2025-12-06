@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.net.Uri
+import com.example.onnxsc.config.ModelConfig
 import java.io.File
 import java.nio.FloatBuffer
 
@@ -376,7 +377,7 @@ object OnnxProcessor {
         context: Context,
         modelUri: Uri,
         bitmap: Bitmap,
-        settings: PostProcessingSettings,
+        config: ModelConfig,
         onLog: (String) -> Unit
     ): InferenceResult? {
         val startTime = System.currentTimeMillis()

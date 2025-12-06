@@ -2,10 +2,7 @@ package com.example.onnxsc.ui
 
 import android.os.Bundle
 import android.text.Html
-import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.style.RelativeSizeSpan
-import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -69,7 +66,8 @@ class ConfigInstructionsFragment : Fragment() {
     }
     
     fun loadConfig() {
-        instructionsContent = ModelConfigManager.loadInstructions(requireContext())
+        val config = ModelConfigManager.getCurrentConfig()
+        instructionsContent = config.instructions
         renderMarkdown()
         updateConfigSummary()
     }
@@ -78,17 +76,19 @@ class ConfigInstructionsFragment : Fragment() {
         if (isEditMode) {
             instructionsContent = binding.editInstructions.text.toString()
         }
+        val config = ModelConfigManager.getCurrentConfig()
+        config.instructions = instructionsContent
+        ModelConfigManager.updateConfig(config)
     }
     
     private fun saveInstructions() {
         instructionsContent = binding.editInstructions.text.toString()
+        val config = ModelConfigManager.getCurrentConfig()
+        config.instructions = instructionsContent
+        ModelConfigManager.updateConfig(config)
         
-        if (ModelConfigManager.saveInstructions(requireContext(), instructionsContent)) {
-            Toast.makeText(requireContext(), "Instrucciones guardadas", Toast.LENGTH_SHORT).show()
-            toggleEditMode()
-        } else {
-            Toast.makeText(requireContext(), "Error al guardar", Toast.LENGTH_SHORT).show()
-        }
+        Toast.makeText(requireContext(), "Instrucciones actualizadas (guardar para aplicar)", Toast.LENGTH_SHORT).show()
+        toggleEditMode()
     }
     
     private fun renderMarkdown() {

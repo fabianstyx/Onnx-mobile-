@@ -7,6 +7,9 @@ import com.google.gson.annotations.SerializedName
 import java.io.File
 
 data class ModelConfig(
+    @SerializedName("model_name")
+    var modelName: String = "",
+    
     @SerializedName("model_type")
     var modelType: String = "onnx",
     
@@ -67,6 +70,9 @@ data class ModelConfig(
     @SerializedName("description")
     var description: String = "",
     
+    @SerializedName("instructions")
+    var instructions: String = "",
+    
     @SerializedName("version")
     var version: String = "1.0",
     
@@ -113,16 +119,17 @@ data class PostprocessingConfig(
 
 object ModelConfigManager {
     
-    private const val CONFIG_DIR = "model"
-    private const val CONFIG_FILE = "config.json"
-    private const val INSTRUCTIONS_FILE = "instructions.md"
+    private const val CONFIG_DIR = "model_configs"
     private const val BACKUP_SUFFIX = ".backup"
     
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
     
+    private var currentModelName: String = ""
     private var currentConfig: ModelConfig = ModelConfig()
     private var originalConfig: ModelConfig = ModelConfig()
     private var configChangeListeners = mutableListOf<(ModelConfig) -> Unit>()
+    
+    fun getCurrentModelName(): String = currentModelName
     
     fun getCurrentConfig(): ModelConfig = currentConfig.copy()
     
@@ -130,6 +137,26 @@ object ModelConfigManager {
     
     fun updateConfig(config: ModelConfig) {
         currentConfig = config
+        notifyListeners()
+    }
+    
+    fun updateConfidenceThreshold(value: Float) {
+        currentConfig.confidenceThreshold = value.coerceIn(0.01f, 0.99f)
+        notifyListeners()
+    }
+    
+    fun updateNmsThreshold(value: Float) {
+        currentConfig.nmsThreshold = value.coerceIn(0.01f, 0.99f)
+        notifyListeners()
+    }
+    
+    fun updateMaxDetections(value: Int) {
+        currentConfig.maxDetections = value.coerceIn(1, 500)
+        notifyListeners()
+    }
+    
+    fun updateEnabledClasses(classes: List<Int>?) {
+        currentConfig.enabledClasses = classes
         notifyListeners()
     }
     
@@ -146,7 +173,7 @@ object ModelConfigManager {
         configChangeListeners.forEach { it(configCopy) }
     }
     
-    fun getConfigDir(context: Context): File {
+    private fun getConfigDir(context: Context): File {
         val configDir = File(context.filesDir, CONFIG_DIR)
         if (!configDir.exists()) {
             configDir.mkdirs()
@@ -154,16 +181,17 @@ object ModelConfigManager {
         return configDir
     }
     
-    fun getConfigFile(context: Context): File {
-        return File(getConfigDir(context), CONFIG_FILE)
+    private fun getSafeFileName(modelName: String): String {
+        return modelName.replace(Regex("[^a-zA-Z0-9._-]"), "_") + ".json"
     }
     
-    fun getInstructionsFile(context: Context): File {
-        return File(getConfigDir(context), INSTRUCTIONS_FILE)
+    private fun getConfigFile(context: Context, modelName: String): File {
+        return File(getConfigDir(context), getSafeFileName(modelName))
     }
     
-    fun loadConfig(context: Context): ModelConfig {
-        val configFile = getConfigFile(context)
+    fun loadConfig(context: Context, modelName: String): Boolean {
+        currentModelName = modelName
+        val configFile = getConfigFile(context, modelName)
         
         return try {
             if (configFile.exists()) {
@@ -171,18 +199,28 @@ object ModelConfigManager {
                 val config = gson.fromJson(json, ModelConfig::class.java)
                 currentConfig = config
                 originalConfig = config.copy()
-                config
+                notifyListeners()
+                true
             } else {
-                createDefaultConfig(context)
+                currentConfig = createDefaultConfig(modelName)
+                originalConfig = currentConfig.copy()
+                notifyListeners()
+                false
             }
         } catch (e: Exception) {
-            createDefaultConfig(context)
+            currentConfig = createDefaultConfig(modelName)
+            originalConfig = currentConfig.copy()
+            notifyListeners()
+            false
         }
     }
     
     fun saveConfig(context: Context): Boolean {
+        if (currentModelName.isEmpty()) return false
+        
         return try {
-            val configFile = getConfigFile(context)
+            val configFile = getConfigFile(context, currentModelName)
+            currentConfig.modelName = currentModelName
             val json = gson.toJson(currentConfig)
             configFile.writeText(json)
             originalConfig = currentConfig.copy()
@@ -193,20 +231,25 @@ object ModelConfigManager {
         }
     }
     
-    fun restoreOriginalConfig(context: Context): Boolean {
+    fun saveConfig(context: Context, modelName: String): Boolean {
+        currentModelName = modelName
+        return saveConfig(context)
+    }
+    
+    fun restoreOriginalConfig(): Boolean {
         return try {
             currentConfig = originalConfig.copy()
-            saveConfig(context)
+            notifyListeners()
             true
         } catch (e: Exception) {
             false
         }
     }
     
-    fun createBackup(context: Context): Boolean {
+    fun createBackup(context: Context, modelName: String): Boolean {
         return try {
-            val configFile = getConfigFile(context)
-            val backupFile = File(getConfigDir(context), CONFIG_FILE + BACKUP_SUFFIX)
+            val configFile = getConfigFile(context, modelName)
+            val backupFile = File(getConfigDir(context), getSafeFileName(modelName) + BACKUP_SUFFIX)
             if (configFile.exists()) {
                 configFile.copyTo(backupFile, overwrite = true)
                 true
@@ -218,13 +261,13 @@ object ModelConfigManager {
         }
     }
     
-    fun restoreFromBackup(context: Context): Boolean {
+    fun restoreFromBackup(context: Context, modelName: String): Boolean {
         return try {
-            val backupFile = File(getConfigDir(context), CONFIG_FILE + BACKUP_SUFFIX)
-            val configFile = getConfigFile(context)
+            val backupFile = File(getConfigDir(context), getSafeFileName(modelName) + BACKUP_SUFFIX)
+            val configFile = getConfigFile(context, modelName)
             if (backupFile.exists()) {
                 backupFile.copyTo(configFile, overwrite = true)
-                loadConfig(context)
+                loadConfig(context, modelName)
                 true
             } else {
                 false
@@ -234,59 +277,44 @@ object ModelConfigManager {
         }
     }
     
-    fun loadInstructions(context: Context): String {
-        val instructionsFile = getInstructionsFile(context)
-        
+    fun deleteConfig(context: Context, modelName: String): Boolean {
         return try {
-            if (instructionsFile.exists()) {
-                instructionsFile.readText()
+            val configFile = getConfigFile(context, modelName)
+            if (configFile.exists()) {
+                configFile.delete()
+                true
             } else {
-                createDefaultInstructions(context)
+                false
             }
-        } catch (e: Exception) {
-            getDefaultInstructionsContent()
-        }
-    }
-    
-    fun saveInstructions(context: Context, content: String): Boolean {
-        return try {
-            val instructionsFile = getInstructionsFile(context)
-            instructionsFile.writeText(content)
-            true
         } catch (e: Exception) {
             false
         }
     }
     
-    private fun createDefaultConfig(context: Context): ModelConfig {
-        val config = ModelConfig(
-            description = "Configuracion por defecto del modelo ONNX",
-            labels = getDefaultLabels()
-        )
-        
-        currentConfig = config
-        originalConfig = config.copy()
-        
-        try {
-            val configFile = getConfigFile(context)
-            val json = gson.toJson(config)
-            configFile.writeText(json)
+    fun listConfigs(context: Context): List<String> {
+        return try {
+            val configDir = getConfigDir(context)
+            configDir.listFiles()
+                ?.filter { it.extension == "json" && !it.name.endsWith(BACKUP_SUFFIX) }
+                ?.map { it.nameWithoutExtension }
+                ?: emptyList()
         } catch (e: Exception) {
+            emptyList()
         }
-        
-        return config
     }
     
-    private fun createDefaultInstructions(context: Context): String {
-        val content = getDefaultInstructionsContent()
-        
-        try {
-            val instructionsFile = getInstructionsFile(context)
-            instructionsFile.writeText(content)
-        } catch (e: Exception) {
-        }
-        
-        return content
+    private fun createDefaultConfig(modelName: String): ModelConfig {
+        return ModelConfig(
+            modelName = modelName,
+            description = "Configuracion para $modelName",
+            labels = getDefaultLabels(),
+            instructions = getDefaultInstructionsContent()
+        )
+    }
+    
+    fun resetToDefaults() {
+        currentConfig = createDefaultConfig(currentModelName)
+        notifyListeners()
     }
     
     private fun getDefaultInstructionsContent(): String {
@@ -352,7 +380,7 @@ El modelo puede producir diferentes formatos de salida:
     
     fun getConfigSummary(): String {
         return buildString {
-            appendLine("=== CONFIGURACION DEL MODELO ===")
+            appendLine("=== CONFIGURACION: $currentModelName ===")
             appendLine()
             appendLine("Tipo: ${currentConfig.modelType}")
             appendLine("Resolucion: ${currentConfig.inputWidth}x${currentConfig.inputHeight}")
@@ -363,6 +391,15 @@ El modelo puede producir diferentes formatos de salida:
             appendLine("NNAPI: ${if (currentConfig.useNnapi) "Si" else "No"}")
             appendLine("Hilos: ${currentConfig.numThreads}")
             appendLine("Labels: ${currentConfig.labels.size} clases")
+            
+            currentConfig.enabledClasses?.let { classes ->
+                appendLine()
+                appendLine("Clases Habilitadas: ${classes.size}")
+                appendLine("  IDs: ${classes.take(20).joinToString(", ")}")
+                if (classes.size > 20) {
+                    appendLine("  ... y ${classes.size - 20} mas")
+                }
+            } ?: appendLine("Clases Habilitadas: Todas")
         }
     }
 }

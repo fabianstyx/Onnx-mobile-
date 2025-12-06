@@ -98,7 +98,7 @@ class ScreenCaptureService : Service() {
         super.onCreate()
         createNotificationChannel()
 if (!xCloudAimbotInitialized) {
-            XCloudAimbot.init()
+            XCloudAimbot.init(this)
             xCloudAimbotInitialized = true
         }
     }

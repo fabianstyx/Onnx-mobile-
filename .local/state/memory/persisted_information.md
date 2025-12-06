@@ -1,29 +1,47 @@
-# Persisted State - ConfigEngine Mobile Update
+# Persisted Information - ONNX Screen Capture Android App
 
-## Status: COMPLETED
+## Current Task Status: COMPLETED
+All build fixes and drawVisuals functionality have been completed.
 
-All tasks have been successfully completed and reviewed by architect.
+## Changes Made
 
-## Completed Tasks
-1. **ConfigEngine.kt** - Full implementation with new mobile format (@TYPE(metadata):value syntax)
-   - File: `app/src/main/java/com/example/onnxsc/engine/ConfigEngine.kt`
-   - Supports: slider, dropdown, on/off, label, image types
-   - Fixed FileObserver constructor issue (line 252)
+### Build Error Fixes (from GitHub Actions)
+**ScreenCaptureService.kt:**
+- Added imports for `ConfigEngine` and `XCloudAimbot`
+- Updated `XCloudAimbot.init(this)` to pass context
 
-2. **App folder structure** - Creates Android/data/com.onxxs.on/ with subfolders
-   - models, scripts, logs, cache
+**XcloudAimbot.kt:**
+- Added `import java.util.Random` 
+- Fixed PointF division issue
+- Changed `smoothMoveTo()` to `ActionEngine.swipe()` 
+- Added `.toFloat()` for tap() parameters
 
-3. **config.ini** - Updated to new mobile-friendly format
-   - File: `app/src/main/assets/config.ini`
+### drawVisuals Functionality (COMPLETED)
 
-4. **LogicEngine/ActionEngine integration** - Verified to use ConfigEngine properties
+**FloatingOverlayService.kt - Added:**
+- `getInstance()` static method
+- `ACTION_UPDATE_POSE` and related extras
+- `updatePoseVisuals()` and `clearPoseVisuals()` static methods
+- In `BboxOverlayView`: pose variables, `skeletonConnections`, `updatePose()`, `drawPoseVisuals()`
+- Draws: FOV circle, skeleton lines (cyan), keypoint dots (green), prediction line (magenta), aim crosshair (red)
 
-5. **Build verification** - APK built successfully
-   - Output: `app/build/outputs/apk/debug/app-debug.apk` (105MB)
+**XcloudAimbot.kt - Updated:**
+- Added `appContext: Context?` variable
+- Modified `init()` to accept Context
+- Added `drawVisuals()` that calls `FloatingOverlayService.updatePoseVisuals()`
+- `destroy()` clears pose visuals
 
-## Build Result
-BUILD SUCCESSFUL - Gradle :app:assembleDebug completed in 4m 4s
+**ScreenCaptureService.kt - Updated:**
+- Changed `XCloudAimbot.init()` to `XCloudAimbot.init(this)` to pass context
 
-## Optional Future Improvements (from architect review)
-1. Add automated runtime validation for parseConfigFile to catch malformed @TYPE definitions
-2. Migrate deprecated FileObserver constructor to modern API for newer SDKs
+## Files Modified
+1. `app/src/main/java/com/example/onnxsc/ScreenCaptureService.kt`
+2. `app/src/main/java/com/example/onnxsc/engine/Aim/XcloudAimbot.kt`
+3. `app/src/main/java/com/example/onnxsc/FloatingOverlayService.kt`
+
+## Build Status
+- Replit has memory constraints for Android builds
+- GitHub Actions should work with all fixes applied
+
+## Progress Tracker
+`.local/state/replit/agent/progress_tracker.md` - 36 items marked complete

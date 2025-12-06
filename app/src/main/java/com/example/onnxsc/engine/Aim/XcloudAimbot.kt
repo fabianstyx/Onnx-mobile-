@@ -1,6 +1,8 @@
 package com.example.onnxsc.engine.aim
 
+import android.content.Context
 import android.graphics.*
+import com.example.onnxsc.FloatingOverlayService
 import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.ActionEngine
 import org.tensorflow.lite.support.image.TensorImage
@@ -15,6 +17,7 @@ object XCloudAimbot {
     private var ortEnv: OrtEnvironment? = null
     private var ortSession: OrtSession? = null
     private var isRunning = false
+    private var appContext: Context? = null
 
     private val keypointNames = listOf(
         "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -31,8 +34,9 @@ object XCloudAimbot {
     private var lastFireTime = 0L
     private val random = Random()
 
-    fun init() {
+    fun init(context: Context? = null) {
         if (isRunning) return
+        appContext = context
         ortEnv = OrtEnvironment.getEnvironment()
         isRunning = true
     }
@@ -64,6 +68,7 @@ object XCloudAimbot {
                 val aimPoint = calculateAimPoint(best)
                 val finalAim = applyPredictionAndSmoothing(aimPoint)
                 moveAim(finalAim)
+                drawVisuals(best, finalAim)
                 triggerFire(finalAim)
             }
 
@@ -161,10 +166,43 @@ object XCloudAimbot {
         }
     }
 
+    private fun drawVisuals(pose: Pose, aim: PointF) {
+        val context = appContext ?: return
+        if (!FloatingOverlayService.isRunning()) return
+        
+        val showSkeleton = ConfigEngine.getBool("xcloud_aim", "show_skeleton", true)
+        val showFov = ConfigEngine.getBool("xcloud_aim", "show_fov_circle", true)
+        val showPrediction = ConfigEngine.getBool("xcloud_aim", "show_prediction_line", true)
+        val fovRadius = ConfigEngine.getInt("xcloud_aim", "fov_radius", 420).toFloat()
+        
+        val keypoints = FloatArray(pose.keypoints.size * 2)
+        for (i in pose.keypoints.indices) {
+            keypoints[i * 2] = pose.keypoints[i].x
+            keypoints[i * 2 + 1] = pose.keypoints[i].y
+        }
+        
+        FloatingOverlayService.updatePoseVisuals(
+            context,
+            keypoints,
+            aim.x,
+            aim.y,
+            fovRadius,
+            showSkeleton,
+            showFov,
+            showPrediction
+        )
+    }
+
     fun destroy() {
+        appContext?.let { context ->
+            if (FloatingOverlayService.isRunning()) {
+                FloatingOverlayService.clearPoseVisuals(context)
+            }
+        }
         ortSession?.close()
         ortSession = null
         isRunning = false
         targetHistory.clear()
+        appContext = null
     }
 }

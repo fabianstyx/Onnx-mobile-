@@ -49,6 +49,48 @@ class FloatingOverlayService : Service() {
         
         fun isRunning(): Boolean = instance != null
         
+        fun getInstance(): FloatingOverlayService? = instance
+        
+        const val ACTION_UPDATE_POSE = "action_update_pose"
+        const val EXTRA_POSE_KEYPOINTS = "extra_pose_keypoints"
+        const val EXTRA_AIM_X = "extra_aim_x"
+        const val EXTRA_AIM_Y = "extra_aim_y"
+        const val EXTRA_FOV_RADIUS = "extra_fov_radius"
+        const val EXTRA_SHOW_SKELETON = "extra_show_skeleton"
+        const val EXTRA_SHOW_FOV = "extra_show_fov"
+        const val EXTRA_SHOW_PREDICTION = "extra_show_prediction"
+        
+        fun updatePoseVisuals(
+            context: Context,
+            keypoints: FloatArray,
+            aimX: Float,
+            aimY: Float,
+            fovRadius: Float,
+            showSkeleton: Boolean,
+            showFov: Boolean,
+            showPrediction: Boolean
+        ) {
+            val intent = Intent(context, FloatingOverlayService::class.java).apply {
+                action = ACTION_UPDATE_POSE
+                putExtra(EXTRA_POSE_KEYPOINTS, keypoints)
+                putExtra(EXTRA_AIM_X, aimX)
+                putExtra(EXTRA_AIM_Y, aimY)
+                putExtra(EXTRA_FOV_RADIUS, fovRadius)
+                putExtra(EXTRA_SHOW_SKELETON, showSkeleton)
+                putExtra(EXTRA_SHOW_FOV, showFov)
+                putExtra(EXTRA_SHOW_PREDICTION, showPrediction)
+            }
+            context.startService(intent)
+        }
+        
+        fun clearPoseVisuals(context: Context) {
+            val intent = Intent(context, FloatingOverlayService::class.java).apply {
+                action = ACTION_UPDATE_POSE
+                putExtra(EXTRA_POSE_KEYPOINTS, floatArrayOf())
+            }
+            context.startService(intent)
+        }
+        
         fun updateStats(context: Context, fps: Double, latency: Long, detectionCount: Int) {
             val intent = Intent(context, FloatingOverlayService::class.java).apply {
                 action = ACTION_UPDATE_STATS
@@ -144,8 +186,32 @@ class FloatingOverlayService : Service() {
                 val isRecording = intent.getBooleanExtra(EXTRA_IS_RECORDING, false)
                 setRecordingInternal(isRecording)
             }
+            ACTION_UPDATE_POSE -> {
+                val keypoints = intent.getFloatArrayExtra(EXTRA_POSE_KEYPOINTS) ?: floatArrayOf()
+                val aimX = intent.getFloatExtra(EXTRA_AIM_X, 0f)
+                val aimY = intent.getFloatExtra(EXTRA_AIM_Y, 0f)
+                val fovRadius = intent.getFloatExtra(EXTRA_FOV_RADIUS, 0f)
+                val showSkeleton = intent.getBooleanExtra(EXTRA_SHOW_SKELETON, true)
+                val showFov = intent.getBooleanExtra(EXTRA_SHOW_FOV, true)
+                val showPrediction = intent.getBooleanExtra(EXTRA_SHOW_PREDICTION, true)
+                updatePoseInternal(keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showPrediction)
+            }
         }
         return START_NOT_STICKY
+    }
+    
+    private fun updatePoseInternal(
+        keypoints: FloatArray,
+        aimX: Float,
+        aimY: Float,
+        fovRadius: Float,
+        showSkeleton: Boolean,
+        showFov: Boolean,
+        showPrediction: Boolean
+    ) {
+        mainHandler.post {
+            bboxOverlayView?.updatePose(keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showPrediction)
+        }
     }
 
     private fun getScreenDimensions() {
@@ -436,6 +502,21 @@ class FloatingOverlayService : Service() {
         private var sourceHeight = 0
         private val df = DecimalFormat("0.0%")
         
+        private var poseKeypoints = floatArrayOf()
+        private var aimX = 0f
+        private var aimY = 0f
+        private var fovRadius = 0f
+        private var showSkeleton = true
+        private var showFov = true
+        private var showPrediction = true
+        
+        private val skeletonConnections = listOf(
+            0 to 1, 0 to 2, 1 to 3, 2 to 4,
+            5 to 7, 6 to 8, 7 to 9, 8 to 10,
+            5 to 6, 5 to 11, 6 to 12, 11 to 12,
+            11 to 13, 12 to 14, 13 to 15, 14 to 16
+        )
+        
         private val COLORS = listOf(
             Color.parseColor("#4CAF50"),
             Color.parseColor("#2196F3"),
@@ -506,12 +587,39 @@ class FloatingOverlayService : Service() {
             detections.clear()
             invalidate()
         }
+        
+        fun updatePose(
+            keypoints: FloatArray,
+            aimX: Float,
+            aimY: Float,
+            fovRadius: Float,
+            showSkeleton: Boolean,
+            showFov: Boolean,
+            showPrediction: Boolean
+        ) {
+            this.poseKeypoints = keypoints
+            this.aimX = aimX
+            this.aimY = aimY
+            this.fovRadius = fovRadius
+            this.showSkeleton = showSkeleton
+            this.showFov = showFov
+            this.showPrediction = showPrediction
+            invalidate()
+        }
+        
+        fun clearPose() {
+            poseKeypoints = floatArrayOf()
+            invalidate()
+        }
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             
-            if (detections.isEmpty()) return
             if (width <= 0 || height <= 0) return
+            
+            drawPoseVisuals(canvas)
+            
+            if (detections.isEmpty()) return
             
             val effectiveSrcWidth = if (sourceWidth > 0) sourceWidth else width
             val effectiveSrcHeight = if (sourceHeight > 0) sourceHeight else height
@@ -605,6 +713,77 @@ class FloatingOverlayService : Service() {
                 summaryTextPaint.textSize = 24f
                 val moreText = "...y ${detections.size - maxToShow} mas"
                 canvas.drawText(moreText, left + padding, top + padding + 28f + (maxToShow + 1) * lineHeight, summaryTextPaint)
+            }
+        }
+        
+        private fun drawPoseVisuals(canvas: Canvas) {
+            if (poseKeypoints.isEmpty()) return
+            
+            val numKeypoints = poseKeypoints.size / 2
+            if (numKeypoints < 17) return
+            
+            val centerX = width / 2f
+            val centerY = height / 2f
+            
+            val posePaint = Paint().apply {
+                isAntiAlias = true
+                style = Paint.Style.STROKE
+            }
+            
+            if (showFov && fovRadius > 0) {
+                posePaint.color = Color.argb(80, 255, 255, 255)
+                posePaint.strokeWidth = 4f
+                posePaint.style = Paint.Style.STROKE
+                canvas.drawCircle(centerX, centerY, fovRadius, posePaint)
+            }
+            
+            if (showSkeleton) {
+                posePaint.color = Color.CYAN
+                posePaint.strokeWidth = 6f
+                posePaint.style = Paint.Style.STROKE
+                
+                for ((a, b) in skeletonConnections) {
+                    if (a >= numKeypoints || b >= numKeypoints) continue
+                    val x1 = poseKeypoints[a * 2]
+                    val y1 = poseKeypoints[a * 2 + 1]
+                    val x2 = poseKeypoints[b * 2]
+                    val y2 = poseKeypoints[b * 2 + 1]
+                    
+                    if (x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0) {
+                        canvas.drawLine(x1, y1, x2, y2, posePaint)
+                    }
+                }
+                
+                posePaint.style = Paint.Style.FILL
+                posePaint.color = Color.GREEN
+                for (i in 0 until numKeypoints) {
+                    val x = poseKeypoints[i * 2]
+                    val y = poseKeypoints[i * 2 + 1]
+                    if (x > 0 && y > 0) {
+                        canvas.drawCircle(x, y, 8f, posePaint)
+                    }
+                }
+            }
+            
+            if (showPrediction && aimX > 0 && aimY > 0) {
+                val noseX = if (poseKeypoints.size >= 2) poseKeypoints[0] else 0f
+                val noseY = if (poseKeypoints.size >= 2) poseKeypoints[1] else 0f
+                
+                if (noseX > 0 && noseY > 0) {
+                    posePaint.color = Color.MAGENTA
+                    posePaint.strokeWidth = 6f
+                    posePaint.style = Paint.Style.STROKE
+                    canvas.drawLine(noseX, noseY, aimX, aimY, posePaint)
+                }
+                
+                posePaint.color = Color.RED
+                posePaint.style = Paint.Style.FILL
+                canvas.drawCircle(aimX, aimY, 12f, posePaint)
+                
+                posePaint.color = Color.WHITE
+                posePaint.style = Paint.Style.STROKE
+                posePaint.strokeWidth = 3f
+                canvas.drawCircle(aimX, aimY, 12f, posePaint)
             }
         }
     }

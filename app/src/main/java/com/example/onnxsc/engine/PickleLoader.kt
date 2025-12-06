@@ -15,6 +15,7 @@ sealed class PickleValue {
     data class PMap(val value: Map<String, PickleValue>) : PickleValue()
     data class PFloatArray(val value: FloatArray) : PickleValue()
     data class PIntArray(val value: IntArray) : PickleValue()
+    data class PBytes(val value: ByteArray) : PickleValue()
     object PNone : PickleValue()
     data class PUnknown(val rawType: String, val raw: Any?) : PickleValue()
 }
@@ -135,18 +136,7 @@ object PickleLoader {
             is Float -> PickleValue.PFloat(obj.toDouble())
             is Double -> PickleValue.PFloat(obj)
             is String -> PickleValue.PString(obj)
-            is ByteArray -> {
-                val floats = FloatArray(obj.size / 4)
-                for (i in floats.indices) {
-                    val bits = ((obj[i * 4].toInt() and 0xFF) or
-                            ((obj[i * 4 + 1].toInt() and 0xFF) shl 8) or
-                            ((obj[i * 4 + 2].toInt() and 0xFF) shl 16) or
-                            ((obj[i * 4 + 3].toInt() and 0xFF) shl 24))
-                    floats[i] = java.lang.Float.intBitsToFloat(bits)
-                }
-                if (floats.isNotEmpty()) PickleValue.PFloatArray(floats)
-                else PickleValue.PString(String(obj, Charsets.UTF_8))
-            }
+            is ByteArray -> PickleValue.PBytes(obj)
             is FloatArray -> PickleValue.PFloatArray(obj)
             is DoubleArray -> PickleValue.PFloatArray(obj.map { it.toFloat() }.toFloatArray())
             is IntArray -> PickleValue.PIntArray(obj)
@@ -221,6 +211,23 @@ object PickleLoader {
                     }
                 }.toIntArray()
             }
+            else -> null
+        }
+    }
+    
+    fun getAsBytes(filePath: String): ByteArray? {
+        return when (val value = loadedFiles[filePath]) {
+            is PickleValue.PBytes -> value.value
+            is PickleValue.PString -> value.value.toByteArray(Charsets.UTF_8)
+            else -> null
+        }
+    }
+    
+    fun getBytes(filePath: String, key: String): ByteArray? {
+        val map = getAsMap(filePath) ?: return null
+        return when (val value = map[key]) {
+            is PickleValue.PBytes -> value.value
+            is PickleValue.PString -> value.value.toByteArray(Charsets.UTF_8)
             else -> null
         }
     }
@@ -387,6 +394,7 @@ object PickleLoader {
             is PickleValue.PString -> value.value
             is PickleValue.PFloatArray -> value.value
             is PickleValue.PIntArray -> value.value
+            is PickleValue.PBytes -> value.value
             is PickleValue.PList -> value.value.map { toNativeMap(it) }
             is PickleValue.PMap -> value.value.mapValues { toNativeMap(it.value) }
             is PickleValue.PUnknown -> value.raw
@@ -403,6 +411,7 @@ object PickleLoader {
                     is PickleValue.PList -> "List(${value.value.size} items)"
                     is PickleValue.PFloatArray -> "FloatArray(${value.value.size})"
                     is PickleValue.PIntArray -> "IntArray(${value.value.size})"
+                    is PickleValue.PBytes -> "Bytes(${value.value.size})"
                     is PickleValue.PString -> "String"
                     is PickleValue.PInt -> "Int"
                     is PickleValue.PFloat -> "Float"
@@ -430,6 +439,7 @@ object PickleLoader {
             is PickleValue.PString -> "${prefix}String: \"${value.value.take(50)}${if (value.value.length > 50) "..." else ""}\""
             is PickleValue.PFloatArray -> "${prefix}FloatArray[${value.value.size}]: ${value.value.take(5).joinToString()}${if (value.value.size > 5) "..." else ""}"
             is PickleValue.PIntArray -> "${prefix}IntArray[${value.value.size}]: ${value.value.take(5).joinToString()}${if (value.value.size > 5) "..." else ""}"
+            is PickleValue.PBytes -> "${prefix}Bytes[${value.value.size}]: ${value.value.take(8).joinToString { String.format("%02X", it) }}${if (value.value.size > 8) "..." else ""}"
             is PickleValue.PList -> {
                 buildString {
                     appendLine("${prefix}List[${value.value.size}]:")

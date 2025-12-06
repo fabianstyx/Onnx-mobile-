@@ -29,6 +29,8 @@ import com.example.onnxsc.engine.InferenceInputHandler
 import com.example.onnxsc.engine.ScriptLogger
 import com.example.onnxsc.engine.ScriptRuntime
 import com.example.onnxsc.engine.ScriptStorage
+import com.example.onnxsc.engine.PickleLoader
+import com.example.onnxsc.engine.PickleResult
 import com.example.onnxsc.ui.ScriptEditorActivity
 import com.google.android.material.slider.Slider
 import java.util.concurrent.atomic.AtomicBoolean
@@ -120,6 +122,7 @@ class MainActivity : ComponentActivity() {
 
         initConfigEngine()
         initActionEngine()
+        initPickleLoader()
 
         modelSwitcher = ModelSwitcher(this)
         
@@ -143,6 +146,11 @@ class MainActivity : ComponentActivity() {
         ConfigEngine.addListener {
             mainHandler.post {
                 Logger.info("Configuracion recargada")
+                
+                val reloadedPickles = PickleLoader.checkAndReloadIfModified()
+                if (reloadedPickles.isNotEmpty()) {
+                    Logger.info("[Pickle] ${reloadedPickles.size} archivo(s) recargado(s)")
+                }
             }
         }
     }
@@ -167,6 +175,19 @@ class MainActivity : ComponentActivity() {
             }
         })
         Logger.info("ActionEngine inicializado (Root: ${ActionEngine.isUsingRoot()})")
+    }
+    
+    private fun initPickleLoader() {
+        PickleLoader.init(this)
+        Logger.info("PickleLoader inicializado")
+        
+        PickleLoader.addListener { filePath, value ->
+            mainHandler.post {
+                if (ConfigEngine.isDebugMode) {
+                    Logger.info("[Pickle] Archivo recargado: ${java.io.File(filePath).name}")
+                }
+            }
+        }
     }
     
     private fun initProcessingThread() {

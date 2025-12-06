@@ -16,3 +16,6 @@
 [x] 16. Detection Parcelable - Made Detection class Parcelable for passing between services
 [x] 17. MainActivity Floating Overlay Integration - Updated MainActivity to request overlay permission and use floating overlay for status (FPS, REC, detections) and bounding boxes over other apps
 [x] 18. Fix InferenceInputHandler.kt - Changed import from PostProcessor to Detection class, fixed property references (label->className, x/y/width/height->bbox properties)
+[x] 19. Fix type mismatch in OnnxProcessor.kt - Changed processImageWithConfig parameter from ModelConfig to PostProcessingSettings to match caller and callee
+[x] 20. Setup Android SDK - Installed Android command-line tools, SDK platform-tools, build-tools;34.0.0, platforms;android-34
+[x] 21. Created local.properties with Android SDK path

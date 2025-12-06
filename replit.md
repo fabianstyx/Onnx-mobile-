@@ -104,7 +104,21 @@ app/src/main/res/layout/
 - **Segmentación**: Masks por clase
 
 ## Build
-El workflow de GitHub Actions (`main.yaml`) compila automáticamente.
+
+### Environment Setup (Replit)
+The Android SDK is automatically set up in `~/android-sdk` with:
+- Command-line tools (latest)
+- Platform tools
+- Build tools 34.0.0
+- Android SDK Platform 34
+
+The `local.properties` file is generated with the SDK path.
+
+### Build Command
+```bash
+./gradlew :app:assembleDebug --no-daemon --stacktrace
+```
+
 APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## Uso

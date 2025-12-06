@@ -1,0 +1,345 @@
+# 1. Pestaña de depuración avanzada (layout)
+cat > app/src/main/res/layout/fragment_debug_advanced.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="Herramientas de Depuración Avanzadas"
+            android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:text="Ajusta parámetros de análisis visual"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginBottom="16dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderArea"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:value="150"
+            android:valueFrom="30"
+            android:valueTo="300"
+            android:stepSize="10"
+            app:labelBehavior="floating" />
+
+        <TextView
+            android:id="@+id/txtArea"
+            android:text="Área de análisis: 150 px"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginBottom="16dp" />
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderConfidence"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:value="70"
+            android:valueFrom="1"
+            android:valueTo="99"
+            android:stepSize="1"
+            app:labelBehavior="floating" />
+
+        <TextView
+            android:id="@+id/txtConfidence"
+            android:text="Confianza mínima: 70%"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:layout_marginBottom="16dp" />
+
+        <com.google.android.material.switch.MaterialSwitch
+            android:id="@+id/switchMarker"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Marcador de depuración"
+            android:checked="false" />
+
+        <com.google.android.material.switch.MaterialSwitch
+            android:id="@+id/switchAutoConfirm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Confirmación visual automática"
+            android:checked="false" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Guardar configuración"
+            style="@style/Widget.Material3.Button" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Probar ahora"
+            style="@style/Widget.Material3.Button.TonalButton" />
+
+        <TextView
+            android:id="@+id/txtResult"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:fontFamily="monospace"
+            android:textSize="12sp"
+            android:textColor="#008000" />
+    </LinearLayout>
+</ScrollView>
+EOF
+
+# 2. Configuración de depuración (Kotlin)
+cat > app/src/main/java/com/example/onnxsc/DebugAdvancedConfig.kt <<'EOF'
+package com.example.onnxsc
+
+data class DebugAdvancedConfig(
+    val areaSize: Int = 150,
+    val priority: String = "any",
+    val smoothing: Int = 0,
+    val maxDistance: Int = 300,
+    val markerEnabled: Boolean = false,
+    val autoConfirm: Boolean = false,
+    val confidenceThreshold: Float = 0.7f
+)
+EOF
+
+# 3. Ejecutor de depuración (disimulado)
+cat > app/src/main/java/com/example/onnxsc/DebugAdvancedExecutor.kt <<'EOF'
+package com.example.onnxsc
+
+import android.graphics.RectF
+import android.view.KeyEvent
+
+object DebugAdvancedExecutor {
+
+    private var config = DebugAdvancedConfig()
+    private var lastTarget: Detection? = null
+
+    fun loadConfig() {
+        val file = File(filesDir, "debug_advanced.json")
+        if (!file.exists()) {
+            config = DebugAdvancedConfig()
+            saveConfig(config)
+            return
+        }
+        try {
+            val json = JSONObject(files.readFile(file.absolutePath))
+            config = DebugAdvancedConfig(
+                areaSize = json.optInt("areaSize", 150),
+                priority = json.optString("priority", "any"),
+                smoothing = json.optInt("smoothing", 0),
+                maxDistance = json.optInt("maxDistance", 300),
+                markerEnabled = json.optBoolean("markerEnabled", false),
+                autoConfirm = json.optBoolean("autoConfirm", false),
+                confidenceThreshold = json.optFloat("confidenceThreshold", 0.7f)
+            )
+        } catch (e: Exception) {
+            Logger.error("Error al cargar configuración de depuración")
+            config = DebugAdvancedConfig()
+        }
+    }
+
+    fun saveConfig(cfg: DebugAdvancedConfig) {
+        val json = JSONObject().apply {
+            put("areaSize", cfg.areaSize)
+            put("priority", cfg.priority)
+            put("smoothing", cfg.smoothing)
+            put("maxDistance", cfg.maxDistance)
+            put("markerEnabled", cfg.markerEnabled)
+            put("autoConfirm", cfg.autoConfirm)
+            put("confidenceThreshold", cfg.confidenceThreshold)
+        }
+        files.writeFile(File(filesDir, "debug_advanced.json").absolutePath, json.toString())
+    }
+
+    fun process(detections: List<Detection>, screenW: Int, screenH: Int): Detection? {
+        if (!config.markerEnabled && !config.autoConfirm) return null
+
+        val centerX = screenW / 2f
+        val centerY = screenH / 2f
+        val halfArea = config.areaSize / 2f
+        val areaRect = RectF(centerX - halfArea, centerY - halfArea, centerX + halfArea, centerY + halfArea)
+
+        val filtered = detections.filter { det ->
+            det.bbox.intersect(areaRect) && det.confidence >= config.confidenceThreshold
+        }
+
+        if (filtered.isEmpty()) {
+            lastTarget = null
+            return null
+        }
+
+        val prioritized = when (config.priority) {
+            "head" -> filtered.filter { it.className.lowercase().contains("head") || it.className.lowercase().contains("person") }
+            "torso" -> filtered.filter { it.className.lowercase().contains("torso") || it.className.lowercase().contains("person") }
+            else -> filtered
+        }
+
+        val closest = prioritized.minByOrNull {
+            val cx = it.bbox.centerX()
+            val cy = it.bbox.centerY()
+            val dx = cx - centerX
+            val dy = cy - centerY
+            kotlin.math.sqrt(dx * dx + dy * dy)
+        } ?: return null
+
+        if (kotlin.math.sqrt((closest.bbox.centerX() - centerX).pow(2) + (closest.bbox.centerY() - centerY).pow(2)) > config.maxDistance) {
+            return null
+        }
+
+        lastTarget = closest
+        return closest
+    }
+
+    fun executeTapIfNeeded(screenW: Int, screenH: Int) {
+        if (!config.autoConfirm) return
+        val target = lastTarget ?: return
+        val centerX = screenW / 2f
+        val centerY = screenH / 2f
+        val objCenterX = target.bbox.centerX() * screenW
+        val objCenterY = target.bbox.centerY() * screenH
+        val distance = kotlin.math.sqrt((objCenterX - centerX).pow(2) + (objCenterY - centerY).pow(2))
+        if (distance < 10) { // umbral de centrado
+            InputAssistEngine.performTap(centerX, centerY)
+            Logger.info("Confirmación visual ejecutada")
+        }
+    }
+}
+EOF
+
+# 4. Fragmento de depuración (Kotlin)
+cat > app/src/main/java/com/example/onnxsc/DebugAdvancedFragment.kt <<'EOF'
+package com.example.onnxsc
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.fragment.app.Fragment
+import com.example.onnxsc.databinding.FragmentDebugAdvancedBinding
+import com.google.android.material.slider.Slider
+
+class DebugAdvancedFragment : Fragment() {
+
+    private lateinit var binding: FragmentDebugAdvancedBinding
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        binding = FragmentDebugAdvancedBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        DebugAdvancedExecutor.loadConfig()
+
+        binding.sliderArea.addOnChangeListener { _, value, _ ->
+            binding.txtArea.text = "Área de análisis: ${value.toInt()} px"
+        }
+
+        binding.sliderConfidence.addOnChangeListener { _, value, _ ->
+            binding.txtConfidence.text = "Confianza mínima: ${value.toInt()}%"
+        }
+
+        binding.btnSave.setOnClickListener {
+            val config = DebugAdvancedConfig(
+                areaSize = binding.sliderArea.value.toInt(),
+                confidenceThreshold = binding.sliderConfidence.value / 100f,
+                markerEnabled = binding.switchMarker.isChecked,
+                autoConfirm = binding.switchAutoConfirm.isChecked
+            )
+            DebugAdvancedExecutor.saveConfig(config)
+            Logger.success("Configuración guardada")
+        }
+
+        binding.btnTest.setOnClickListener {
+            Logger.info("Prueba ejecutada")
+        }
+    }
+}
+EOF
+
+# 5. Integración en MainActivity (fragmento)
+cat >> app/src/main/java/com/example/onnxsc/MainActivity.kt <<'EOF'
+    private fun processScreenCapture(data: Intent) {
+        Logger.info("Iniciando captura real...");
+        val mpManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val projection = mpManager.getMediaProjection(RESULT_OK, data) ?: run {
+            Logger.error("No se pudo obtener MediaProjection")
+            return
+        }
+
+        val metrics = resources.displayMetrics
+        val width = metrics.widthPixels
+        val height = metrics.heightPixels
+        val density = metrics.densityDpi
+
+        Logger.info("Creando ImageReader $width x $height")
+        val imageReader = android.media.ImageReader.newInstance(width, height, android.graphics.PixelFormat.RGBA_8888, 1)
+
+        val virtualDisplay = projection.createVirtualDisplay(
+            "screenCap", width, height, density,
+            android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            imageReader.surface, null, null
+        )
+
+        Logger.info("Esperando frame...")
+        imageReader.setOnImageAvailableListener({ reader ->
+            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            Logger.info("Frame capturado")
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * width
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                android.graphics.Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            image.close()
+            virtualDisplay.release()
+            projection.stop()
+
+            Logger.info("Bitmap listo: ${bitmap.width} x ${bitmap.height}")
+            GallerySaver.save(bitmap, "capture_${System.currentTimeMillis()}.png") { log -> Logger.info(log) }
+
+            FpsMeter.tick { fps -> Logger.info(fps) }
+
+            modelUri?.let { uri ->
+                Logger.info("Ejecutando modelo ONNX...")
+                val result = OnnxProcessor.processImage(this, uri, bitmap) { log -> Logger.info(log) }
+                if (result != null) {
+                    val detections = OnnxAutoParser.parse(result, bitmap.width, bitmap.height) { log -> Logger.info(log) }
+                    val best = DebugAdvancedExecutor.process(detections, bitmap.width, bitmap.height)
+                    if (best != null) {
+                        if (DebugAdvancedExecutor.config.markerEnabled) {
+                            ResultOverlay.show(binding.root, best.className, best.confidence, best.bbox)
+                        }
+                        DebugAdvancedExecutor.executeTapIfNeeded(bitmap.width, bitmap.height)
+                    } else {
+                        Logger.info("Sin objetivo válido")
+                    }
+                    result.close()
+                } else {
+                    Logger.error("Falló la inferencia")
+                }
+            }
+            imageReader.setOnImageAvailableListener(null, null)
+        }, null)
+    }
+EOF
+

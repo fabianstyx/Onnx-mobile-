@@ -51,4 +51,18 @@ dependencies {
     
     // Activity KTX para registerForActivityResult
     implementation("androidx.activity:activity-ktx:1.8.2")
+    
+    // QuickJS JavaScript Engine para scripting
+    implementation("app.cash.quickjs:quickjs-android:0.9.2")
+    
+    // Lifecycle para ViewModel y LiveData
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    
+    // Coroutines para async
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    
+    // Gson para JSON
+    implementation("com.google.code.gson:gson:2.10.1")
 }

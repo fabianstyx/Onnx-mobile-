@@ -117,6 +117,13 @@ class ConfigLabelsFragment : Fragment() {
         )
         binding.editLabels.setText(cocoLabels.joinToString("\n"))
         updateLabelCount()
+        android.widget.Toast.makeText(requireContext(), "Clases COCO cargadas (solo para modelos COCO)", android.widget.Toast.LENGTH_SHORT).show()
+    }
+    
+    fun loadGenericLabels(numClasses: Int) {
+        val genericLabels = (0 until numClasses).map { "Clase $it" }
+        binding.editLabels.setText(genericLabels.joinToString("\n"))
+        updateLabelCount()
     }
     
     private fun loadImageNetLabels() {

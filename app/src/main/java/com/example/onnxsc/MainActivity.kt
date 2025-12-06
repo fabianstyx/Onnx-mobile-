@@ -22,6 +22,9 @@ import androidx.core.content.ContextCompat
 import com.example.onnxsc.databinding.ActivityMainBinding
 import com.example.onnxsc.databinding.DialogPostprocessConfigBinding
 import com.example.onnxsc.engine.ActionsApi
+import com.example.onnxsc.engine.ActionEngine
+import com.example.onnxsc.engine.ConfigEngine
+import com.example.onnxsc.engine.LogicEngine
 import com.example.onnxsc.engine.InferenceInputHandler
 import com.example.onnxsc.engine.ScriptLogger
 import com.example.onnxsc.engine.ScriptRuntime
@@ -115,12 +118,55 @@ class MainActivity : ComponentActivity() {
         Logger.info("App iniciada - ONNX Screen v2.0")
         Logger.info("Nuevas funciones: Info modelo, Config post-proceso")
 
+        initConfigEngine()
+        initActionEngine()
+
         modelSwitcher = ModelSwitcher(this)
         
         initProcessingThread()
 
         checkAndRequestPermissions()
         setupButtons()
+    }
+    
+    private fun initConfigEngine() {
+        val success = ConfigEngine.init(this)
+        if (success) {
+            Logger.success("ConfigEngine inicializado")
+            if (ConfigEngine.isDebugMode) {
+                Logger.info(ConfigEngine.getConfigSummary())
+            }
+        } else {
+            Logger.warn("ConfigEngine: usando valores por defecto")
+        }
+        
+        ConfigEngine.addListener {
+            mainHandler.post {
+                Logger.info("Configuracion recargada")
+            }
+        }
+    }
+    
+    private fun initActionEngine() {
+        ActionEngine.init(this)
+        ActionEngine.setCallback(object : ActionEngine.ActionCallback {
+            override fun onActionStarted(instruction: com.example.onnxsc.engine.LogicInstruction) {
+                if (ConfigEngine.getBool("logging", "log_actions", true)) {
+                    Logger.info("[Action] ${instruction.action} en (${instruction.targetX.toInt()}, ${instruction.targetY.toInt()})")
+                }
+            }
+            
+            override fun onActionCompleted(instruction: com.example.onnxsc.engine.LogicInstruction, success: Boolean) {
+                if (ConfigEngine.isDebugMode) {
+                    Logger.info("[Action] Completada: $success")
+                }
+            }
+            
+            override fun onActionError(instruction: com.example.onnxsc.engine.LogicInstruction, error: String) {
+                Logger.error("[Action] Error: $error")
+            }
+        })
+        Logger.info("ActionEngine inicializado (Root: ${ActionEngine.isUsingRoot()})")
     }
     
     private fun initProcessingThread() {
@@ -659,6 +705,8 @@ class MainActivity : ComponentActivity() {
                             val fps = FpsMeter.getCurrentFps()
                             val latency = FpsMeter.getCurrentLatency()
                             
+                            processDetectionsWithLogicEngine(result.allDetections, bitmapWidth, bitmapHeight)
+                            
                             if (useFloatingOverlay && Settings.canDrawOverlays(this)) {
                                 FloatingOverlayService.updateStats(this, fps, latency, currentDetectionCount)
                                 
@@ -721,6 +769,29 @@ class MainActivity : ComponentActivity() {
                 bitmap.recycle()
             }
         } catch (e: Exception) { }
+    }
+    
+    private fun processDetectionsWithLogicEngine(
+        detections: List<Detection>,
+        screenWidth: Int,
+        screenHeight: Int
+    ) {
+        if (!ConfigEngine.isEnabled || !ConfigEngine.actionEnabled) {
+            return
+        }
+        
+        val instructions = LogicEngine.processDetections(detections, screenWidth, screenHeight)
+        
+        if (instructions.isEmpty()) {
+            return
+        }
+        
+        if (ConfigEngine.getBool("logging", "log_detections", false)) {
+            Logger.info("[Logic] ${instructions.size} instrucciones generadas")
+        }
+        
+        val delay = ConfigEngine.actionDelayMs.toLong()
+        ActionEngine.executeInstructions(instructions, delay)
     }
 
     private fun saveCaptureWithOverlay() {

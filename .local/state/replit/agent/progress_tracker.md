@@ -20,3 +20,8 @@
 [x] 20. Setup Android SDK - Installed Android command-line tools, SDK platform-tools, build-tools;34.0.0, platforms;android-34
 [x] 21. Created local.properties with Android SDK path
 [x] 22. Fix NNAPI incompatibility error - Added automatic fallback from NNAPI to CPU when model operations are not supported by NNAPI (e.g., AddNnapiSplit dimension errors)
+[x] 23. ConfigEngine.kt - Lector de config.ini con tipos nativos, acceso global, copia desde assets, hot-reload
+[x] 24. LogicEngine.kt - Evaluador de detecciones ONNX según parámetros INI (ROI, filtros, prioridades, modos)
+[x] 25. ActionEngine.kt - Métodos de acciones programables (tap, swipe, keyPress, axisControl, etc.) via root o accessibility
+[x] 26. config.ini - Archivo de ejemplo con secciones: general, detection, regions, filters, actions, targeting, overlay, performance, logging
+[x] 27. MainActivity Integration - Inicializa ConfigEngine y ActionEngine, conecta flujo OnnxProcessor → LogicEngine → ActionEngine

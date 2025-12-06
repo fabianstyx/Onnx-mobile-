@@ -197,6 +197,14 @@ class MainActivity : ComponentActivity() {
         binding.btnPostProcess.setOnClickListener {
             showPostProcessConfigDialog()
         }
+
+        binding.btnScriptEditor.setOnClickListener {
+            startActivity(Intent(this, ScriptEditorActivity::class.java))
+        }
+
+        binding.btnModelConfig.setOnClickListener {
+            startActivity(Intent(this, com.example.onnxsc.ui.ModelConfigActivity::class.java))
+        }
     }
 
     private fun showModelInfoDialog() {

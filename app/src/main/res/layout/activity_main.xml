@@ -186,6 +186,14 @@
                             android:layout_marginTop="8dp"
                             app:icon="@drawable/ic_script"
                             style="@style/Widget.Material3.Button.TonalButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnModelConfig"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Configuracion Avanzada"
+                            android:layout_marginTop="8dp"
+                            style="@style/Widget.Material3.Button.OutlinedButton" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

@@ -27,7 +27,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "export JAVA_HOME=/nix/store/xad649j61kwkh0id5wvyiab5rliprp4d-openjdk-17.0.15+6 && export ANDROID_HOME=$HOME/android-sdk && export PATH=$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH && rm -rf ~/.gradle/caches/transforms-4 && ./gradlew :app:assembleDebug --no-daemon --stacktrace"
+args = "./gradlew :app:assembleDebug --no-daemon --stacktrace 2>&1 | head -100"
 
 [userenv]
 

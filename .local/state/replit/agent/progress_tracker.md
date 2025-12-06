@@ -32,3 +32,5 @@
 [x] 32. Re-installed Android SDK (platform-tools, build-tools;34.0.0, platforms;android-34)
 [x] 33. Re-created local.properties with Android SDK path
 [x] 34. Build successful - APK generated at app/build/outputs/apk/debug/app-debug.apk (~100MB)
+[x] 35. Fix XCloudAimbot build errors - Added missing imports (ConfigEngine, XCloudAimbot) to ScreenCaptureService.kt
+[x] 36. Fix XcloudAimbot.kt - Fixed PointF division operator issue, Random import, smoothMoveTo → swipe, Int to Float type conversion for tap(), removed non-existent drawVisuals canvas access

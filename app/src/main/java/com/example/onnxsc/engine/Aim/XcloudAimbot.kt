@@ -1,7 +1,6 @@
 package com.example.onnxsc.engine.aim
 
 import android.graphics.*
-import com.example.onnxsc.FloatingOverlayService
 import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.ActionEngine
 import org.tensorflow.lite.support.image.TensorImage
@@ -9,6 +8,7 @@ import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.ops.ResizeOp
 import ai.onnxruntime.*
 import kotlin.math.*
+import java.util.Random
 
 object XCloudAimbot {
 
@@ -29,6 +29,7 @@ object XCloudAimbot {
     private var currentAim = PointF(0f, 0f)
     private var targetHistory = mutableMapOf<Int, MutableList<PointF>>()
     private var lastFireTime = 0L
+    private val random = Random()
 
     fun init() {
         if (isRunning) return
@@ -63,7 +64,6 @@ object XCloudAimbot {
                 val aimPoint = calculateAimPoint(best)
                 val finalAim = applyPredictionAndSmoothing(aimPoint)
                 moveAim(finalAim)
-                drawVisuals(best, finalAim)
                 triggerFire(finalAim)
             }
 
@@ -119,24 +119,34 @@ object XCloudAimbot {
 
         var predicted = target
         if (ConfigEngine.getBool("xcloud_aim", "prediction_enabled", true) && history.size > 3) {
-            val vel = PointF(target.x - history[history.size - 3].x, target.y - history[history.size - 3].y) / 3f
-            predicted = PointF(target.x + vel.x * 8 * ConfigEngine.getFloat("xcloud_aim", "prediction_scale", 1.3f),
-                              target.y + vel.y * 8 * ConfigEngine.getFloat("xcloud_aim", "prediction_scale", 1.3f))
+            val velX = (target.x - history[history.size - 3].x) / 3f
+            val velY = (target.y - history[history.size - 3].y) / 3f
+            val predictionScale = ConfigEngine.getFloat("xcloud_aim", "prediction_scale", 1.3f)
+            predicted = PointF(
+                target.x + velX * 8 * predictionScale,
+                target.y + velY * 8 * predictionScale
+            )
         }
 
         val smoothing = ConfigEngine.getInt("xcloud_aim", "smoothing_percent", 45) / 100f
         currentAim.x += (predicted.x - currentAim.x) * smoothing
         currentAim.y += (predicted.y - currentAim.y) * smoothing
 
-        if (Random().nextFloat() < ConfigEngine.getFloat("xcloud_aim", "jitter_amount", 0.15f)) {
-            currentAim.offset(Random().nextGaussian().toFloat() * 8, Random().nextGaussian().toFloat() * 8)
+        if (random.nextFloat() < ConfigEngine.getFloat("xcloud_aim", "jitter_amount", 0.15f)) {
+            currentAim.offset(
+                (random.nextGaussian() * 8).toFloat(),
+                (random.nextGaussian() * 8).toFloat()
+            )
         }
 
         return currentAim
     }
 
     private fun moveAim(point: PointF) {
-        ActionEngine.smoothMoveTo(point.x.toInt(), point.y.toInt())
+        val centerX = ConfigEngine.getInt("general", "screen_width", 1080) / 2f
+        val centerY = ConfigEngine.getInt("general", "screen_height", 2400) / 2f
+        val duration = ConfigEngine.getInt("xcloud_aim", "move_duration_ms", 50).toLong()
+        ActionEngine.swipe(centerX, centerY, point.x, point.y, duration)
     }
 
     private fun triggerFire(aim: PointF) {
@@ -144,44 +154,10 @@ object XCloudAimbot {
         val now = System.currentTimeMillis()
         if (now - lastFireTime > ConfigEngine.getInt("xcloud_aim", "trigger_delay_ms", 38)) {
             ActionEngine.tap(
-                ConfigEngine.getInt("xcloud_aim", "fire_button_x", 960),
-                ConfigEngine.getInt("xcloud_aim", "fire_button_y", 1700)
+                ConfigEngine.getInt("xcloud_aim", "fire_button_x", 960).toFloat(),
+                ConfigEngine.getInt("xcloud_aim", "fire_button_y", 1700).toFloat()
             )
             lastFireTime = now
-        }
-    }
-
-    private fun drawVisuals(pose: Pose, aim: PointF) {
-        val canvas = FloatingOverlayService.getInstance()?.getBboxOverlayView()?.getCanvas() ?: return
-        val paint = Paint().apply { isAntiAlias = true }
-
-        // Skeleton
-        if (ConfigEngine.getBool("xcloud_aim", "show_skeleton", true)) {
-            paint.color = Color.CYAN
-            paint.strokeWidth = 6f
-            val connections = listOf(0 to 1, 0 to 2, 1 to 3, 2 to 4, 5 to 7, 6 to 8, 7 to 9, 8 to 10, 5 to 6, 5 to 11, 6 to 12, 11 to 12, 11 to 13, 12 to 14, 13 to 15, 14 to 16)
-            connections.forEach { (a, b) ->
-                val p1 = pose.keypoints[a]
-                val p2 = pose.keypoints[b]
-                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paint)
-            }
-        }
-
-        // FOV Circle
-        if (ConfigEngine.getBool("xcloud_aim", "show_fov_circle", true)) {
-            paint.color = Color.argb(50, 255, 255, 255)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 4f
-            val centerX = ConfigEngine.getInt("general", "screen_width", 1080) / 2f
-            val centerY = ConfigEngine.getInt("general", "screen_height", 2400) / 2f
-            canvas.drawCircle(centerX, centerY, ConfigEngine.getInt("xcloud_aim", "fov_radius", 420).toFloat(), paint)
-        }
-
-        // Prediction line
-        if (ConfigEngine.getBool("xcloud_aim", "show_prediction_line", true)) {
-            paint.color = Color.MAGENTA
-            paint.strokeWidth = 6f
-            canvas.drawLine(pose.keypoints[0].x, pose.keypoints[0].y, aim.x, aim.y, paint)
         }
     }
 
@@ -189,5 +165,6 @@ object XCloudAimbot {
         ortSession?.close()
         ortSession = null
         isRunning = false
+        targetHistory.clear()
     }
 }

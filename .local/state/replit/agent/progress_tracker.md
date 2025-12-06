@@ -34,3 +34,6 @@
 [x] 34. Build successful - APK generated at app/build/outputs/apk/debug/app-debug.apk (~100MB)
 [x] 35. Fix XCloudAimbot build errors - Added missing imports (ConfigEngine, XCloudAimbot) to ScreenCaptureService.kt
 [x] 36. Fix XcloudAimbot.kt - Fixed PointF division operator issue, Random import, smoothMoveTo → swipe, Int to Float type conversion for tap(), removed non-existent drawVisuals canvas access
+[x] 37. MAJOR: XcloudAimbot.kt REWRITE - Fixed ALL config key references to match new config.ini format
+[x] 38. MAJOR: Added full xcloud_aim section to config.ini with 100+ parameters matching JS original
+[x] 39. XcloudAimbot features added: ignore_self_region, burst_mode, smart_slowdown, fps_compensation, prediction enhancements, target_switch_cooldown

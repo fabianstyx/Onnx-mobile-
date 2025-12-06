@@ -203,7 +203,13 @@ class MainActivity : ComponentActivity() {
         }
 
         binding.btnModelConfig.setOnClickListener {
-            startActivity(Intent(this, com.example.onnxsc.ui.ModelConfigActivity::class.java))
+            val uri = modelUri
+            if (uri == null) {
+                Logger.warn("Primero selecciona un modelo para configurar")
+                return@setOnClickListener
+            }
+            val modelName = uri.lastPathSegment?.substringAfterLast("/") ?: "desconocido"
+            startActivity(com.example.onnxsc.ui.ModelConfigActivity.createIntent(this, modelName))
         }
     }
 

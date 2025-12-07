@@ -726,6 +726,49 @@ class FloatingOverlayService : Service() {
             invalidate()
         }
         
+        fun updatePoseExtended(
+            keypoints: FloatArray,
+            aimX: Float,
+            aimY: Float,
+            fovRadius: Float,
+            showSkeleton: Boolean,
+            showFov: Boolean,
+            showTracers: Boolean,
+            showCrosshair: Boolean,
+            crosshairStyle: String,
+            crosshairColor: String,
+            crosshairSize: Int,
+            showHeadDot: Boolean,
+            headDotColor: String,
+            headDotSize: Int,
+            skeletonColor: String,
+            fovColor: String,
+            tracersColor: String,
+            showIgnoreRegion: Boolean,
+            poseCount: Int
+        ) {
+            this.poseKeypoints = keypoints
+            this.aimX = aimX
+            this.aimY = aimY
+            this.fovRadius = fovRadius
+            this.showSkeleton = showSkeleton
+            this.showFov = showFov
+            this.showPrediction = showTracers
+            this.showCrosshair = showCrosshair
+            this.crosshairStyle = crosshairStyle
+            this.crosshairColor = crosshairColor
+            this.crosshairSize = crosshairSize
+            this.showHeadDot = showHeadDot
+            this.headDotColor = headDotColor
+            this.headDotSize = headDotSize
+            this.skeletonColorStr = skeletonColor
+            this.fovColorStr = fovColor
+            this.tracersColorStr = tracersColor
+            this.showIgnoreRegion = showIgnoreRegion
+            this.poseCount = poseCount
+            invalidate()
+        }
+        
         fun clearPose() {
             poseKeypoints = floatArrayOf()
             invalidate()
@@ -835,6 +878,27 @@ class FloatingOverlayService : Service() {
             }
         }
         
+        private fun parseColor(colorStr: String): Int {
+            return try {
+                when {
+                    colorStr.startsWith("rgba(") -> {
+                        val parts = colorStr.removePrefix("rgba(").removeSuffix(")").split(",")
+                        if (parts.size >= 4) {
+                            val r = parts[0].trim().toInt()
+                            val g = parts[1].trim().toInt()
+                            val b = parts[2].trim().toInt()
+                            val a = (parts[3].trim().toFloat() * 255).toInt()
+                            Color.argb(a, r, g, b)
+                        } else Color.WHITE
+                    }
+                    colorStr.startsWith("#") -> Color.parseColor(colorStr)
+                    else -> Color.WHITE
+                }
+            } catch (e: Exception) {
+                Color.WHITE
+            }
+        }
+        
         private fun drawPoseVisuals(canvas: Canvas) {
             if (poseKeypoints.isEmpty()) return
             
@@ -849,15 +913,17 @@ class FloatingOverlayService : Service() {
                 style = Paint.Style.STROKE
             }
             
+            // Draw FOV circle
             if (showFov && fovRadius > 0) {
-                posePaint.color = Color.argb(80, 255, 255, 255)
+                posePaint.color = parseColor(fovColorStr)
                 posePaint.strokeWidth = 4f
                 posePaint.style = Paint.Style.STROKE
                 canvas.drawCircle(centerX, centerY, fovRadius, posePaint)
             }
             
+            // Draw skeleton
             if (showSkeleton) {
-                posePaint.color = Color.CYAN
+                posePaint.color = parseColor(skeletonColorStr)
                 posePaint.strokeWidth = 6f
                 posePaint.style = Paint.Style.STROKE
                 
@@ -873,6 +939,7 @@ class FloatingOverlayService : Service() {
                     }
                 }
                 
+                // Draw keypoints
                 posePaint.style = Paint.Style.FILL
                 posePaint.color = Color.GREEN
                 for (i in 0 until numKeypoints) {
@@ -884,25 +951,66 @@ class FloatingOverlayService : Service() {
                 }
             }
             
+            // Draw head dot
+            if (showHeadDot && poseKeypoints.size >= 2) {
+                val noseX = poseKeypoints[0]
+                val noseY = poseKeypoints[1]
+                if (noseX > 0 && noseY > 0) {
+                    posePaint.color = parseColor(headDotColor)
+                    posePaint.style = Paint.Style.FILL
+                    canvas.drawCircle(noseX, noseY, headDotSize.toFloat() * 3, posePaint)
+                }
+            }
+            
+            // Draw tracers (line from head to aim point)
             if (showPrediction && aimX > 0 && aimY > 0) {
                 val noseX = if (poseKeypoints.size >= 2) poseKeypoints[0] else 0f
                 val noseY = if (poseKeypoints.size >= 2) poseKeypoints[1] else 0f
                 
                 if (noseX > 0 && noseY > 0) {
-                    posePaint.color = Color.MAGENTA
-                    posePaint.strokeWidth = 6f
+                    posePaint.color = parseColor(tracersColorStr)
+                    posePaint.strokeWidth = 4f
                     posePaint.style = Paint.Style.STROKE
                     canvas.drawLine(noseX, noseY, aimX, aimY, posePaint)
                 }
+            }
+            
+            // Draw crosshair at aim point
+            if (showCrosshair && aimX > 0 && aimY > 0) {
+                posePaint.color = parseColor(crosshairColor)
+                val size = crosshairSize.toFloat() * 4
                 
-                posePaint.color = Color.RED
-                posePaint.style = Paint.Style.FILL
-                canvas.drawCircle(aimX, aimY, 12f, posePaint)
+                when (crosshairStyle) {
+                    "dot" -> {
+                        posePaint.style = Paint.Style.FILL
+                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                    }
+                    "cross" -> {
+                        posePaint.style = Paint.Style.STROKE
+                        posePaint.strokeWidth = 3f
+                        canvas.drawLine(aimX - size, aimY, aimX + size, aimY, posePaint)
+                        canvas.drawLine(aimX, aimY - size, aimX, aimY + size, posePaint)
+                    }
+                    "circle" -> {
+                        posePaint.style = Paint.Style.STROKE
+                        posePaint.strokeWidth = 3f
+                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                    }
+                }
                 
+                // Outer ring for visibility
                 posePaint.color = Color.WHITE
                 posePaint.style = Paint.Style.STROKE
-                posePaint.strokeWidth = 3f
-                canvas.drawCircle(aimX, aimY, 12f, posePaint)
+                posePaint.strokeWidth = 2f
+                canvas.drawCircle(aimX, aimY, size + 4, posePaint)
+            }
+            
+            // Draw pose count indicator
+            if (poseCount > 0) {
+                val infoText = "Poses: $poseCount"
+                summaryTextPaint.color = Color.GREEN
+                summaryTextPaint.textSize = 28f
+                canvas.drawText(infoText, 24f, height - 24f, summaryTextPaint)
             }
         }
     }

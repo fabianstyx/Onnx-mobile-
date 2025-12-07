@@ -249,6 +249,11 @@ if (!xCloudAimbotInitialized) {
             isCapturing.set(true)
             setupImageListener()
             
+            // Notify that capture has started
+            mainHandler.post {
+                startedCallback?.invoke()
+            }
+            
         } catch (e: Exception) {
             e.printStackTrace()
             notifyError("Error configurando captura: ${e.message}")
@@ -315,12 +320,32 @@ if (!xCloudAimbotInitialized) {
             val bitmapToSend = finalBitmap
             finalBitmap = null
             
+            // Process XCloudAimbot on capture thread (background) to avoid blocking UI
+            if (ConfigEngine.getBool("xcloud_aim", "enable", false)) {
+                try {
+                    val aimBitmap = bitmapToSend!!.copy(bitmapToSend!!.config, false)
+                    if (aimBitmap != null) {
+                        captureHandler?.post {
+                            try {
+                                XCloudAimbot.processFrame(aimBitmap)
+                            } catch (e: Exception) {
+                                mainHandler.post {
+                                    errorCallback?.invoke("[XCloudAim] Error: ${e.message}")
+                                }
+                            } finally {
+                                try { aimBitmap.recycle() } catch (_: Exception) { }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Bitmap copy failed, skip this frame for aimbot
+                }
+            }
+            
+            // Pass to main frame callback on UI thread
             mainHandler.post {
                 try {
                     frameCallback?.invoke(bitmapToSend!!)
-                    if (ConfigEngine.getBool("xcloud_aim", "enable", false)) {
-    XCloudAimbot.processFrame(bitmapToSend!!)
-}
                 } catch (e: Exception) {
                     try { bitmapToSend?.recycle() } catch (_: Exception) { }
                 }
@@ -350,6 +375,13 @@ if (!xCloudAimbotInitialized) {
         }
         
         cleanup()
+        
+        // Notify that capture has stopped
+        mainHandler.post {
+            stoppedCallback?.invoke()
+        }
+        
+        stopSelf()
     }
     
     private fun cleanup() {

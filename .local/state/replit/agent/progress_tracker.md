@@ -37,3 +37,7 @@
 [x] 37. MAJOR: XcloudAimbot.kt REWRITE - Fixed ALL config key references to match new config.ini format
 [x] 38. MAJOR: Added full xcloud_aim section to config.ini with 100+ parameters matching JS original
 [x] 39. XcloudAimbot features added: ignore_self_region, burst_mode, smart_slowdown, fps_compensation, prediction enhancements, target_switch_cooldown
+[x] 40. FIX: ScreenCaptureService - Added missing startedCallback/stoppedCallback invocations (fixes FPS/detection not showing)
+[x] 41. FIX: Bitmap recycling crash - XCloudAimbot now receives a copy of the bitmap to avoid recycled bitmap errors
+[x] 42. FIX: XCloudAimbot error handling - Added throttled logging for missing model warnings and errors
+[x] 43. FIX: XCloudAimbot processing moved to background thread (captureHandler) to avoid blocking UI and causing ANRs

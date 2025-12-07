@@ -62,6 +62,10 @@ object XCloudAimbot {
         isAimActive = if (alwaysOn) !active else active
     }
 
+    private var lastModelWarningTime = 0L
+    private var lastErrorTime = 0L
+    private var lastError: String? = null
+    
     fun processFrame(bitmap: Bitmap) {
         if (!ConfigEngine.getBool("xcloud_aim", "enable", false)) return
         if (!ConfigEngine.getBool("xcloud_aim", "detection_enabled", true)) return
@@ -74,7 +78,14 @@ object XCloudAimbot {
         }
 
         val modelPath = ConfigEngine.getString("xcloud_aim", "model_path", "")
-        if (modelPath.isEmpty() || !java.io.File(modelPath).exists()) return
+        if (modelPath.isEmpty()) {
+            logWarningThrottled("XCloudAim: model_path no configurado en config.ini")
+            return
+        }
+        if (!java.io.File(modelPath).exists()) {
+            logWarningThrottled("XCloudAim: Modelo no encontrado en $modelPath")
+            return
+        }
 
         updateFps()
 
@@ -135,7 +146,24 @@ object XCloudAimbot {
             resized.recycle()
 
         } catch (e: Exception) {
-            e.printStackTrace()
+            logErrorThrottled("XCloudAim error: ${e.message}")
+        }
+    }
+    
+    private fun logWarningThrottled(message: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastModelWarningTime > 5000) { // Log every 5 seconds max
+            lastModelWarningTime = now
+            android.util.Log.w("XCloudAimbot", message)
+        }
+    }
+    
+    private fun logErrorThrottled(message: String) {
+        val now = System.currentTimeMillis()
+        if (message != lastError || now - lastErrorTime > 3000) { // Log different errors or same error every 3 seconds
+            lastError = message
+            lastErrorTime = now
+            android.util.Log.e("XCloudAimbot", message)
         }
     }
 

@@ -124,7 +124,7 @@ class XCloudAimConfigActivity : AppCompatActivity() {
     }
     
     private fun getModelDirectory(): File {
-        val onnxDir = File(Environment.getExternalStorageDirectory(), "ONNX")
+        val onnxDir = File(getExternalFilesDir(null), "models")
         if (!onnxDir.exists()) {
             onnxDir.mkdirs()
         }
@@ -136,18 +136,23 @@ class XCloudAimConfigActivity : AppCompatActivity() {
     }
     
     private fun findModelPath(model: MoveNetModel): String? {
+        val appModelsDir = getModelDirectory()
         val possiblePaths = listOf(
-            File(getModelDirectory(), model.fileName),
+            File(appModelsDir, model.fileName),
+            File(filesDir, model.fileName),
+            File(getExternalFilesDir(null), model.fileName),
             File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), model.fileName),
             File("/sdcard/ONNX/${model.fileName}"),
-            File("/sdcard/Download/${model.fileName}"),
-            File("/storage/emulated/0/ONNX/${model.fileName}"),
-            File("/storage/emulated/0/Download/${model.fileName}")
+            File("/sdcard/Download/${model.fileName}")
         )
         
         for (file in possiblePaths) {
-            if (file.exists() && file.canRead() && file.length() > 1000) {
-                return file.absolutePath
+            try {
+                if (file.exists() && file.canRead() && file.length() > 1000) {
+                    return file.absolutePath
+                }
+            } catch (e: Exception) {
+                continue
             }
         }
         return null

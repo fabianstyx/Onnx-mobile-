@@ -43,6 +43,10 @@ object XCloudAimbot {
     private var frameCount = 0
     private var skipCounter = 0
     private var isAimActive = false
+    
+    private var lastBitmapWidth = 0
+    private var lastBitmapHeight = 0
+    private var detectedPoseCount = 0
 
     fun init(context: Context? = null) {
         if (isRunning) return
@@ -87,6 +91,8 @@ object XCloudAimbot {
             return
         }
 
+        lastBitmapWidth = bitmap.width
+        lastBitmapHeight = bitmap.height
         updateFps()
 
         try {
@@ -98,6 +104,7 @@ object XCloudAimbot {
                     // NNAPI not available, use CPU
                 }
                 ortSession = ortEnv!!.createSession(modelPath, sessionOptions)
+                android.util.Log.i("XCloudAimbot", "Modelo ONNX cargado: $modelPath")
             }
 
             val inputName = ortSession!!.inputNames.iterator().next()
@@ -124,6 +131,7 @@ object XCloudAimbot {
 
             val poses = parseMoveNetOutput(outputArray, bitmap.width, bitmap.height)
             val filteredPoses = filterPosesInIgnoreRegion(poses, bitmap.width, bitmap.height)
+            detectedPoseCount = filteredPoses.size
             
             if (filteredPoses.isNotEmpty()) {
                 val best = selectBestTarget(filteredPoses)
@@ -135,7 +143,7 @@ object XCloudAimbot {
                         moveAim(finalAim)
                     }
                     
-                    drawVisuals(best, finalAim)
+                    drawVisuals(best, finalAim, bitmap.width, bitmap.height)
                     triggerFire(finalAim, best)
                 }
             } else {
@@ -499,11 +507,13 @@ object XCloudAimbot {
         }
     }
 
-    private fun drawVisuals(pose: Pose, aim: PointF) {
+    private fun drawVisuals(pose: Pose, aim: PointF, srcWidth: Int, srcHeight: Int) {
         val context = appContext ?: return
-        if (!FloatingOverlayService.isRunning()) return
+        if (!FloatingOverlayService.isRunning()) {
+            android.util.Log.w("XCloudAimbot", "FloatingOverlayService no está corriendo")
+            return
+        }
         
-        val showDebug = ConfigEngine.getBool("xcloud_aim", "show_debug_info", true)
         val espOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "esp_show_only_when_aiming", true)
         
         if (espOnlyWhenAiming && !isAimActive && !ConfigEngine.getBool("xcloud_aim", "always_on_enabled", false)) {
@@ -515,21 +525,51 @@ object XCloudAimbot {
         val showTracers = ConfigEngine.getBool("xcloud_aim", "tracers_enabled", true)
         val fovRadius = ConfigEngine.getInt("xcloud_aim", "fov_radius", 136).toFloat()
         
+        val scaleX = screenWidth.toFloat() / srcWidth.toFloat()
+        val scaleY = screenHeight.toFloat() / srcHeight.toFloat()
+        
         val keypoints = FloatArray(pose.keypoints.size * 2)
         for (i in pose.keypoints.indices) {
-            keypoints[i * 2] = pose.keypoints[i].x
-            keypoints[i * 2 + 1] = pose.keypoints[i].y
+            keypoints[i * 2] = pose.keypoints[i].x * scaleX
+            keypoints[i * 2 + 1] = pose.keypoints[i].y * scaleY
         }
         
-        FloatingOverlayService.updatePoseVisuals(
+        val scaledAimX = aim.x * scaleX
+        val scaledAimY = aim.y * scaleY
+        
+        val showCrosshair = ConfigEngine.getBool("xcloud_aim", "crosshair_enabled", true)
+        val crosshairStyle = ConfigEngine.getString("xcloud_aim", "crosshair_style", "dot")
+        val crosshairColor = ConfigEngine.getString("xcloud_aim", "crosshair_color", "#000000")
+        val crosshairSize = ConfigEngine.getInt("xcloud_aim", "crosshair_size", 3)
+        val showHeadDot = ConfigEngine.getBool("xcloud_aim", "head_dot_enabled", true)
+        val headDotColor = ConfigEngine.getString("xcloud_aim", "head_dot_color", "#00FFFF")
+        val headDotSize = ConfigEngine.getInt("xcloud_aim", "head_dot_size", 4)
+        val skeletonColor = ConfigEngine.getString("xcloud_aim", "skeleton_color", "#FFFFFF")
+        val fovCircleColor = ConfigEngine.getString("xcloud_aim", "fov_circle_color", "rgba(255,255,255,0.3)")
+        val tracersColor = ConfigEngine.getString("xcloud_aim", "tracers_color", "rgba(255,255,255,0.9)")
+        val showIgnoreRegion = ConfigEngine.getBool("xcloud_aim", "draw_ignore_region_enabled", false)
+        
+        FloatingOverlayService.updatePoseVisualsExtended(
             context,
             keypoints,
-            aim.x,
-            aim.y,
+            scaledAimX,
+            scaledAimY,
             fovRadius,
             showSkeleton,
             showFov,
-            showTracers
+            showTracers,
+            showCrosshair,
+            crosshairStyle,
+            crosshairColor,
+            crosshairSize,
+            showHeadDot,
+            headDotColor,
+            headDotSize,
+            skeletonColor,
+            fovCircleColor,
+            tracersColor,
+            showIgnoreRegion,
+            detectedPoseCount
         )
     }
 

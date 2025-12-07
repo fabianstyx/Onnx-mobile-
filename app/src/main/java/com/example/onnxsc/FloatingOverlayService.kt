@@ -91,6 +91,67 @@ class FloatingOverlayService : Service() {
             context.startService(intent)
         }
         
+        const val ACTION_UPDATE_POSE_EXTENDED = "action_update_pose_extended"
+        const val EXTRA_SHOW_CROSSHAIR = "extra_show_crosshair"
+        const val EXTRA_CROSSHAIR_STYLE = "extra_crosshair_style"
+        const val EXTRA_CROSSHAIR_COLOR = "extra_crosshair_color"
+        const val EXTRA_CROSSHAIR_SIZE = "extra_crosshair_size"
+        const val EXTRA_SHOW_HEAD_DOT = "extra_show_head_dot"
+        const val EXTRA_HEAD_DOT_COLOR = "extra_head_dot_color"
+        const val EXTRA_HEAD_DOT_SIZE = "extra_head_dot_size"
+        const val EXTRA_SKELETON_COLOR = "extra_skeleton_color"
+        const val EXTRA_FOV_COLOR = "extra_fov_color"
+        const val EXTRA_TRACERS_COLOR = "extra_tracers_color"
+        const val EXTRA_SHOW_IGNORE_REGION = "extra_show_ignore_region"
+        const val EXTRA_POSE_COUNT = "extra_pose_count"
+        
+        fun updatePoseVisualsExtended(
+            context: Context,
+            keypoints: FloatArray,
+            aimX: Float,
+            aimY: Float,
+            fovRadius: Float,
+            showSkeleton: Boolean,
+            showFov: Boolean,
+            showTracers: Boolean,
+            showCrosshair: Boolean,
+            crosshairStyle: String,
+            crosshairColor: String,
+            crosshairSize: Int,
+            showHeadDot: Boolean,
+            headDotColor: String,
+            headDotSize: Int,
+            skeletonColor: String,
+            fovCircleColor: String,
+            tracersColor: String,
+            showIgnoreRegion: Boolean,
+            poseCount: Int
+        ) {
+            val intent = Intent(context, FloatingOverlayService::class.java).apply {
+                action = ACTION_UPDATE_POSE_EXTENDED
+                putExtra(EXTRA_POSE_KEYPOINTS, keypoints)
+                putExtra(EXTRA_AIM_X, aimX)
+                putExtra(EXTRA_AIM_Y, aimY)
+                putExtra(EXTRA_FOV_RADIUS, fovRadius)
+                putExtra(EXTRA_SHOW_SKELETON, showSkeleton)
+                putExtra(EXTRA_SHOW_FOV, showFov)
+                putExtra(EXTRA_SHOW_PREDICTION, showTracers)
+                putExtra(EXTRA_SHOW_CROSSHAIR, showCrosshair)
+                putExtra(EXTRA_CROSSHAIR_STYLE, crosshairStyle)
+                putExtra(EXTRA_CROSSHAIR_COLOR, crosshairColor)
+                putExtra(EXTRA_CROSSHAIR_SIZE, crosshairSize)
+                putExtra(EXTRA_SHOW_HEAD_DOT, showHeadDot)
+                putExtra(EXTRA_HEAD_DOT_COLOR, headDotColor)
+                putExtra(EXTRA_HEAD_DOT_SIZE, headDotSize)
+                putExtra(EXTRA_SKELETON_COLOR, skeletonColor)
+                putExtra(EXTRA_FOV_COLOR, fovCircleColor)
+                putExtra(EXTRA_TRACERS_COLOR, tracersColor)
+                putExtra(EXTRA_SHOW_IGNORE_REGION, showIgnoreRegion)
+                putExtra(EXTRA_POSE_COUNT, poseCount)
+            }
+            context.startService(intent)
+        }
+        
         fun updateStats(context: Context, fps: Double, latency: Long, detectionCount: Int) {
             val intent = Intent(context, FloatingOverlayService::class.java).apply {
                 action = ACTION_UPDATE_STATS
@@ -196,8 +257,53 @@ class FloatingOverlayService : Service() {
                 val showPrediction = intent.getBooleanExtra(EXTRA_SHOW_PREDICTION, true)
                 updatePoseInternal(keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showPrediction)
             }
+            ACTION_UPDATE_POSE_EXTENDED -> {
+                val keypoints = intent.getFloatArrayExtra(EXTRA_POSE_KEYPOINTS) ?: floatArrayOf()
+                val aimX = intent.getFloatExtra(EXTRA_AIM_X, 0f)
+                val aimY = intent.getFloatExtra(EXTRA_AIM_Y, 0f)
+                val fovRadius = intent.getFloatExtra(EXTRA_FOV_RADIUS, 0f)
+                val showSkeleton = intent.getBooleanExtra(EXTRA_SHOW_SKELETON, true)
+                val showFov = intent.getBooleanExtra(EXTRA_SHOW_FOV, true)
+                val showTracers = intent.getBooleanExtra(EXTRA_SHOW_PREDICTION, true)
+                val showCrosshair = intent.getBooleanExtra(EXTRA_SHOW_CROSSHAIR, true)
+                val crosshairStyle = intent.getStringExtra(EXTRA_CROSSHAIR_STYLE) ?: "dot"
+                val crosshairColor = intent.getStringExtra(EXTRA_CROSSHAIR_COLOR) ?: "#000000"
+                val crosshairSize = intent.getIntExtra(EXTRA_CROSSHAIR_SIZE, 3)
+                val showHeadDot = intent.getBooleanExtra(EXTRA_SHOW_HEAD_DOT, true)
+                val headDotColor = intent.getStringExtra(EXTRA_HEAD_DOT_COLOR) ?: "#00FFFF"
+                val headDotSize = intent.getIntExtra(EXTRA_HEAD_DOT_SIZE, 4)
+                val skeletonColor = intent.getStringExtra(EXTRA_SKELETON_COLOR) ?: "#FFFFFF"
+                val fovColor = intent.getStringExtra(EXTRA_FOV_COLOR) ?: "rgba(255,255,255,0.3)"
+                val tracersColor = intent.getStringExtra(EXTRA_TRACERS_COLOR) ?: "rgba(255,255,255,0.9)"
+                val showIgnoreRegion = intent.getBooleanExtra(EXTRA_SHOW_IGNORE_REGION, false)
+                val poseCount = intent.getIntExtra(EXTRA_POSE_COUNT, 0)
+                updatePoseExtendedInternal(
+                    keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showTracers,
+                    showCrosshair, crosshairStyle, crosshairColor, crosshairSize,
+                    showHeadDot, headDotColor, headDotSize,
+                    skeletonColor, fovColor, tracersColor, showIgnoreRegion, poseCount
+                )
+            }
         }
         return START_NOT_STICKY
+    }
+    
+    private fun updatePoseExtendedInternal(
+        keypoints: FloatArray, aimX: Float, aimY: Float, fovRadius: Float,
+        showSkeleton: Boolean, showFov: Boolean, showTracers: Boolean,
+        showCrosshair: Boolean, crosshairStyle: String, crosshairColor: String, crosshairSize: Int,
+        showHeadDot: Boolean, headDotColor: String, headDotSize: Int,
+        skeletonColor: String, fovColor: String, tracersColor: String,
+        showIgnoreRegion: Boolean, poseCount: Int
+    ) {
+        mainHandler.post {
+            bboxOverlayView?.updatePoseExtended(
+                keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showTracers,
+                showCrosshair, crosshairStyle, crosshairColor, crosshairSize,
+                showHeadDot, headDotColor, headDotSize,
+                skeletonColor, fovColor, tracersColor, showIgnoreRegion, poseCount
+            )
+        }
     }
     
     private fun updatePoseInternal(
@@ -509,6 +615,19 @@ class FloatingOverlayService : Service() {
         private var showSkeleton = true
         private var showFov = true
         private var showPrediction = true
+        
+        private var showCrosshair = true
+        private var crosshairStyle = "dot"
+        private var crosshairColor = "#000000"
+        private var crosshairSize = 3
+        private var showHeadDot = true
+        private var headDotColor = "#00FFFF"
+        private var headDotSize = 4
+        private var skeletonColorStr = "#FFFFFF"
+        private var fovColorStr = "rgba(255,255,255,0.3)"
+        private var tracersColorStr = "rgba(255,255,255,0.9)"
+        private var showIgnoreRegion = false
+        private var poseCount = 0
         
         private val skeletonConnections = listOf(
             0 to 1, 0 to 2, 1 to 3, 2 to 4,

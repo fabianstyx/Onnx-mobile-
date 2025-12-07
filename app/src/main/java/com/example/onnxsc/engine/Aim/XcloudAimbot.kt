@@ -209,13 +209,18 @@ object XCloudAimbot {
         if (now - lastStatsUpdateTime < 100) return
         lastStatsUpdateTime = now
         
-        if (FloatingOverlayService.isRunning()) {
+        // Always try to update stats - the service will auto-start overlays if needed
+        try {
             FloatingOverlayService.updateStats(
                 context,
                 currentFps.toDouble(),
                 processingLatency,
                 detectedPoseCount
             )
+        } catch (e: Exception) {
+            if (frameCount % 60 == 0) {
+                android.util.Log.w("XCloudAimbot", "updateStatsOverlay error: ${e.message}")
+            }
         }
     }
 
@@ -630,14 +635,11 @@ object XCloudAimbot {
 
     private fun drawVisuals(pose: Pose, aim: PointF, srcWidth: Int, srcHeight: Int) {
         val context = appContext ?: run {
-            android.util.Log.w("XCloudAimbot", "drawVisuals: appContext es null")
+            if (frameCount % 60 == 0) android.util.Log.w("XCloudAimbot", "drawVisuals: appContext es null")
             return
         }
         
-        if (!FloatingOverlayService.isRunning()) {
-            android.util.Log.w("XCloudAimbot", "FloatingOverlayService no está corriendo - no se pueden mostrar overlays")
-            return
-        }
+        // Don't check isRunning - just try to send. The service will auto-start overlays
         
         val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
         val espOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "esp_show_only_when_aiming", false)
@@ -715,7 +717,7 @@ object XCloudAimbot {
     private fun drawFovOnlyVisuals(srcWidth: Int, srcHeight: Int) {
         val context = appContext ?: return
         
-        if (!FloatingOverlayService.isRunning()) return
+        // Don't check isRunning - just try to send. The service will auto-start overlays
         
         val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
         val fovShowOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "fov_circle_show_only_when_aiming", true)

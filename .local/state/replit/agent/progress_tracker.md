@@ -69,3 +69,7 @@
 [x] 69. FIX: BboxOverlayView.drawPoseVisuals now draws FOV and crosshair FIRST before checking for keypoints
 [x] 70. FIX: Added fov_circle_show_only_when_aiming logic to respect config properly
 [x] 71. FIX: Removed duplicate crosshair drawing code from BboxOverlayView
+[x] 72. FIX: FloatingOverlayService timing - Auto-start foreground service on any action (not just ACTION_START)
+[x] 73. FIX: FloatingOverlayService auto-show overlays - updateStatsInternal, updatePoseInternal, updatePoseExtendedInternal now call showOverlays() if not visible
+[x] 74. FIX: XCloudAimbot removed isRunning() checks - Always sends data to FloatingOverlayService, letting it handle overlay creation
+[x] 75. FIX: Added isReady() method to FloatingOverlayService companion object

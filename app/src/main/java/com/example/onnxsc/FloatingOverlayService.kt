@@ -49,6 +49,8 @@ class FloatingOverlayService : Service() {
         
         fun isRunning(): Boolean = instance != null
         
+        fun isReady(): Boolean = instance?.isVisible?.get() == true
+        
         fun getInstance(): FloatingOverlayService? = instance
         
         const val ACTION_UPDATE_POSE = "action_update_pose"
@@ -213,14 +215,27 @@ class FloatingOverlayService : Service() {
         getScreenDimensions()
     }
 
+    private var isForegroundStarted = false
+    
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Auto-start foreground service and overlays for any action except STOP
+        if (intent?.action != ACTION_STOP && !isForegroundStarted) {
+            try {
+                startForegroundWithNotification()
+                isForegroundStarted = true
+                android.util.Log.i("FloatingOverlay", "Auto-started foreground service")
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingOverlay", "Failed to start foreground: ${e.message}")
+            }
+        }
+        
         when (intent?.action) {
             ACTION_START -> {
-                startForegroundWithNotification()
                 showOverlays()
             }
             ACTION_STOP -> {
                 hideOverlays()
+                isForegroundStarted = false
                 stopSelf()
             }
             ACTION_UPDATE_STATS -> {
@@ -296,6 +311,11 @@ class FloatingOverlayService : Service() {
         skeletonColor: String, fovColor: String, tracersColor: String,
         showIgnoreRegion: Boolean, poseCount: Int
     ) {
+        // Ensure overlays are shown
+        if (!isVisible.get()) {
+            showOverlays()
+        }
+        
         mainHandler.post {
             bboxOverlayView?.updatePoseExtended(
                 keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showTracers,
@@ -315,6 +335,11 @@ class FloatingOverlayService : Service() {
         showFov: Boolean,
         showPrediction: Boolean
     ) {
+        // Ensure overlays are shown
+        if (!isVisible.get()) {
+            showOverlays()
+        }
+        
         mainHandler.post {
             bboxOverlayView?.updatePose(keypoints, aimX, aimY, fovRadius, showSkeleton, showFov, showPrediction)
         }
@@ -351,16 +376,20 @@ class FloatingOverlayService : Service() {
 
     private fun showOverlays() {
         if (isVisible.get()) {
-            Logger.info("[FloatingOverlay] showOverlays: already visible, skipping")
             return
         }
         isVisible.set(true)
-        Logger.info("[FloatingOverlay] showOverlays: setting visible=true, creating overlays")
+        android.util.Log.i("FloatingOverlay", "showOverlays: creating overlays...")
         
         mainHandler.post {
-            createStatusOverlay()
-            createBboxOverlay()
-            Logger.info("[FloatingOverlay] showOverlays: overlays created successfully")
+            try {
+                createStatusOverlay()
+                createBboxOverlay()
+                android.util.Log.i("FloatingOverlay", "showOverlays: overlays created successfully")
+            } catch (e: Exception) {
+                android.util.Log.e("FloatingOverlay", "showOverlays: error creating overlays: ${e.message}")
+                isVisible.set(false)
+            }
         }
     }
 
@@ -511,9 +540,11 @@ class FloatingOverlayService : Service() {
     }
 
     private fun updateStatsInternal(fps: Double, latency: Long, detectionCount: Int) {
+        // Don't skip if not visible - try to show overlays if they haven't been shown yet
         if (!isVisible.get()) {
-            Logger.info("[FloatingOverlay] updateStatsInternal: overlay not visible, skipping")
-            return
+            // Try to show overlays if we haven't yet
+            android.util.Log.d("FloatingOverlay", "updateStatsInternal: overlay not visible, attempting to show")
+            showOverlays()
         }
         
         mainHandler.post {

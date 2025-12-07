@@ -824,15 +824,9 @@ class FloatingOverlayService : Service() {
             
             if (width <= 0 || height <= 0) return
             
-            drawPoseVisuals(canvas)
-            
-            if (detections.isEmpty()) return
-            
             // Use screen dimensions as fallback if source dimensions not set
             val effectiveSrcWidth = if (sourceWidth > 0) sourceWidth else this@FloatingOverlayService.screenWidth.takeIf { it > 0 } ?: width
             val effectiveSrcHeight = if (sourceHeight > 0) sourceHeight else this@FloatingOverlayService.screenHeight.takeIf { it > 0 } ?: height
-            
-            android.util.Log.d("BboxOverlayView", "onDraw: detections=${detections.size}, effective=${effectiveSrcWidth}x${effectiveSrcHeight}, view=${width}x${height}")
             
             val srcAspect = effectiveSrcWidth.toFloat() / effectiveSrcHeight.toFloat()
             val dstAspect = width.toFloat() / height.toFloat()
@@ -850,6 +844,12 @@ class FloatingOverlayService : Service() {
                 offsetX = (width - effectiveSrcWidth * scale) / 2f
                 offsetY = 0f
             }
+            
+            drawPoseVisuals(canvas, scale, offsetX, offsetY)
+            
+            if (detections.isEmpty()) return
+            
+            android.util.Log.d("BboxOverlayView", "onDraw: detections=${detections.size}, effective=${effectiveSrcWidth}x${effectiveSrcHeight}, view=${width}x${height}")
 
             for ((index, det) in detections.withIndex()) {
                 if (det.bbox.width() <= 0 || det.bbox.height() <= 0) continue
@@ -947,21 +947,26 @@ class FloatingOverlayService : Service() {
             }
         }
         
-        private fun drawPoseVisuals(canvas: Canvas) {
-            val centerX = width / 2f
-            val centerY = height / 2f
-            
+        private fun drawPoseVisuals(canvas: Canvas, scale: Float, offsetX: Float, offsetY: Float) {
             val posePaint = Paint().apply {
                 isAntiAlias = true
                 style = Paint.Style.STROKE
             }
+            
+            // Apply offset to aim point
+            val scaledAimX = aimX + offsetX
+            val scaledAimY = aimY + offsetY
+            
+            // Calculate FOV center using offset
+            val fovCenterX = offsetX + (width - 2 * offsetX) / 2f
+            val fovCenterY = offsetY + (height - 2 * offsetY) / 2f
             
             // ALWAYS draw FOV circle first (even without keypoints)
             if (showFov && fovRadius > 0) {
                 posePaint.color = parseColor(fovColorStr)
                 posePaint.strokeWidth = 4f
                 posePaint.style = Paint.Style.STROKE
-                canvas.drawCircle(centerX, centerY, fovRadius, posePaint)
+                canvas.drawCircle(fovCenterX, fovCenterY, fovRadius, posePaint)
             }
             
             // ALWAYS draw crosshair at aim point (even without keypoints)
@@ -972,18 +977,18 @@ class FloatingOverlayService : Service() {
                 when (crosshairStyle) {
                     "dot" -> {
                         posePaint.style = Paint.Style.FILL
-                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                        canvas.drawCircle(scaledAimX, scaledAimY, size, posePaint)
                     }
                     "cross" -> {
                         posePaint.style = Paint.Style.STROKE
                         posePaint.strokeWidth = 3f
-                        canvas.drawLine(aimX - size, aimY, aimX + size, aimY, posePaint)
-                        canvas.drawLine(aimX, aimY - size, aimX, aimY + size, posePaint)
+                        canvas.drawLine(scaledAimX - size, scaledAimY, scaledAimX + size, scaledAimY, posePaint)
+                        canvas.drawLine(scaledAimX, scaledAimY - size, scaledAimX, scaledAimY + size, posePaint)
                     }
                     "circle" -> {
                         posePaint.style = Paint.Style.STROKE
                         posePaint.strokeWidth = 3f
-                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                        canvas.drawCircle(scaledAimX, scaledAimY, size, posePaint)
                     }
                 }
                 
@@ -991,7 +996,7 @@ class FloatingOverlayService : Service() {
                 posePaint.color = Color.WHITE
                 posePaint.style = Paint.Style.STROKE
                 posePaint.strokeWidth = 2f
-                canvas.drawCircle(aimX, aimY, size + 4, posePaint)
+                canvas.drawCircle(scaledAimX, scaledAimY, size + 4, posePaint)
             }
             
             // Return early if no keypoints for skeleton drawing
@@ -999,6 +1004,13 @@ class FloatingOverlayService : Service() {
             
             val numKeypoints = poseKeypoints.size / 2
             if (numKeypoints < 17) return
+            
+            // Apply offset to all keypoints
+            val correctedKeypoints = FloatArray(poseKeypoints.size)
+            for (i in 0 until poseKeypoints.size / 2) {
+                correctedKeypoints[i * 2] = poseKeypoints[i * 2] + offsetX
+                correctedKeypoints[i * 2 + 1] = poseKeypoints[i * 2 + 1] + offsetY
+            }
             
             // Draw skeleton
             if (showSkeleton) {
@@ -1008,12 +1020,18 @@ class FloatingOverlayService : Service() {
                 
                 for ((a, b) in skeletonConnections) {
                     if (a >= numKeypoints || b >= numKeypoints) continue
-                    val x1 = poseKeypoints[a * 2]
-                    val y1 = poseKeypoints[a * 2 + 1]
-                    val x2 = poseKeypoints[b * 2]
-                    val y2 = poseKeypoints[b * 2 + 1]
+                    val x1 = correctedKeypoints[a * 2]
+                    val y1 = correctedKeypoints[a * 2 + 1]
+                    val x2 = correctedKeypoints[b * 2]
+                    val y2 = correctedKeypoints[b * 2 + 1]
                     
-                    if (x1 > 0 && y1 > 0 && x2 > 0 && y2 > 0) {
+                    // Check original keypoints for validity (before offset)
+                    val origX1 = poseKeypoints[a * 2]
+                    val origY1 = poseKeypoints[a * 2 + 1]
+                    val origX2 = poseKeypoints[b * 2]
+                    val origY2 = poseKeypoints[b * 2 + 1]
+                    
+                    if (origX1 > 0 && origY1 > 0 && origX2 > 0 && origY2 > 0) {
                         canvas.drawLine(x1, y1, x2, y2, posePaint)
                     }
                 }
@@ -1022,19 +1040,23 @@ class FloatingOverlayService : Service() {
                 posePaint.style = Paint.Style.FILL
                 posePaint.color = Color.GREEN
                 for (i in 0 until numKeypoints) {
-                    val x = poseKeypoints[i * 2]
-                    val y = poseKeypoints[i * 2 + 1]
-                    if (x > 0 && y > 0) {
+                    val x = correctedKeypoints[i * 2]
+                    val y = correctedKeypoints[i * 2 + 1]
+                    val origX = poseKeypoints[i * 2]
+                    val origY = poseKeypoints[i * 2 + 1]
+                    if (origX > 0 && origY > 0) {
                         canvas.drawCircle(x, y, 8f, posePaint)
                     }
                 }
             }
             
             // Draw head dot
-            if (showHeadDot && poseKeypoints.size >= 2) {
-                val noseX = poseKeypoints[0]
-                val noseY = poseKeypoints[1]
-                if (noseX > 0 && noseY > 0) {
+            if (showHeadDot && correctedKeypoints.size >= 2) {
+                val noseX = correctedKeypoints[0]
+                val noseY = correctedKeypoints[1]
+                val origNoseX = poseKeypoints.getOrNull(0) ?: 0f
+                val origNoseY = poseKeypoints.getOrNull(1) ?: 0f
+                if (origNoseX > 0 && origNoseY > 0) {
                     posePaint.color = parseColor(headDotColor)
                     posePaint.style = Paint.Style.FILL
                     canvas.drawCircle(noseX, noseY, headDotSize.toFloat() * 3, posePaint)
@@ -1043,14 +1065,16 @@ class FloatingOverlayService : Service() {
             
             // Draw tracers (line from head to aim point)
             if (showPrediction && aimX > 0 && aimY > 0) {
-                val noseX = if (poseKeypoints.size >= 2) poseKeypoints[0] else 0f
-                val noseY = if (poseKeypoints.size >= 2) poseKeypoints[1] else 0f
+                val noseX = correctedKeypoints.getOrNull(0) ?: 0f
+                val noseY = correctedKeypoints.getOrNull(1) ?: 0f
+                val origNoseX = poseKeypoints.getOrNull(0) ?: 0f
+                val origNoseY = poseKeypoints.getOrNull(1) ?: 0f
                 
-                if (noseX > 0 && noseY > 0) {
+                if (origNoseX > 0 && origNoseY > 0) {
                     posePaint.color = parseColor(tracersColorStr)
                     posePaint.strokeWidth = 4f
                     posePaint.style = Paint.Style.STROKE
-                    canvas.drawLine(noseX, noseY, aimX, aimY, posePaint)
+                    canvas.drawLine(noseX, noseY, scaledAimX, scaledAimY, posePaint)
                 }
             }
             

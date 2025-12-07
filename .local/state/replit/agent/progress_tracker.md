@@ -47,3 +47,6 @@
 [x] 47. FIX: setAimActive logic bug - removed inverted logic
 [x] 48. FIX: Default values in code now match config.ini (always_on_enabled=true, esp_show_only_when_aiming=false)
 [x] 49. ADDED: Debug logging to XCloudAimbot for troubleshooting overlay issues
+[x] 50. FIX: Changed xcloud_aim enable default from false to true in ScreenCaptureService.kt
+[x] 51. FIX: Added debug logging to BboxOverlayView (setSourceDimensions, updateDetections, onDraw)
+[x] 52. FIX: Added fallback to screen dimensions when sourceWidth/sourceHeight are 0 in onDraw

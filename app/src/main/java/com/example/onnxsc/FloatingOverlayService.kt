@@ -693,12 +693,18 @@ class FloatingOverlayService : Service() {
             if (width > 0 && height > 0) {
                 this.sourceWidth = width
                 this.sourceHeight = height
+                android.util.Log.d("BboxOverlayView", "setSourceDimensions: ${width}x${height}")
             }
         }
 
         fun updateDetections(newDetections: List<Detection>) {
             detections.clear()
             detections.addAll(newDetections)
+            android.util.Log.d("BboxOverlayView", "updateDetections: ${newDetections.size} detecciones, srcDim=${sourceWidth}x${sourceHeight}, viewDim=${width}x${height}")
+            if (newDetections.isNotEmpty()) {
+                val first = newDetections[0]
+                android.util.Log.d("BboxOverlayView", "Primera detección: ${first.className} bbox=${first.bbox}")
+            }
             invalidate()
         }
 
@@ -783,8 +789,11 @@ class FloatingOverlayService : Service() {
             
             if (detections.isEmpty()) return
             
-            val effectiveSrcWidth = if (sourceWidth > 0) sourceWidth else width
-            val effectiveSrcHeight = if (sourceHeight > 0) sourceHeight else height
+            // Use screen dimensions as fallback if source dimensions not set
+            val effectiveSrcWidth = if (sourceWidth > 0) sourceWidth else this@FloatingOverlayService.screenWidth.takeIf { it > 0 } ?: width
+            val effectiveSrcHeight = if (sourceHeight > 0) sourceHeight else this@FloatingOverlayService.screenHeight.takeIf { it > 0 } ?: height
+            
+            android.util.Log.d("BboxOverlayView", "onDraw: detections=${detections.size}, effective=${effectiveSrcWidth}x${effectiveSrcHeight}, view=${width}x${height}")
             
             val srcAspect = effectiveSrcWidth.toFloat() / effectiveSrcHeight.toFloat()
             val dstAspect = width.toFloat() / height.toFloat()

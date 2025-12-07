@@ -321,7 +321,7 @@ if (!xCloudAimbotInitialized) {
             finalBitmap = null
             
             // Process XCloudAimbot on capture thread (background) to avoid blocking UI
-            if (ConfigEngine.getBool("xcloud_aim", "enable", false)) {
+            if (ConfigEngine.getBool("xcloud_aim", "enable", true)) {
                 try {
                     val aimBitmap = bitmapToSend!!.copy(bitmapToSend!!.config, false)
                     if (aimBitmap != null) {

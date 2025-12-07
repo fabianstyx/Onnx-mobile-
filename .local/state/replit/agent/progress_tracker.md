@@ -52,3 +52,6 @@
 [x] 52. FIX: Added fallback to screen dimensions when sourceWidth/sourceHeight are 0 in onDraw
 [x] 53. FIX: XCloudAimConfigActivity crash - Added ConfigEngine.init(this) call in onCreate() to ensure config is loaded before accessing values
 [x] 54. FIX: Slider value validation crash - Values must be valueFrom + multiple of stepSize. Changed FOV default 136→140, added rounding for all slider values loaded from config
+[x] 55. FEATURE: Model selector - Added dropdown to choose between Lightning (fast, ~30 FPS) and Thunder (accurate, ~15 FPS)
+[x] 56. FEATURE: Auto download models - Added download button with progress bar, downloads from Hugging Face
+[x] 57. FEATURE: Model status display - Shows if model is downloaded, file size, and path

@@ -314,26 +314,59 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Modelo"
+                        android:text="Modelo MoveNet"
                         android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                         android:layout_marginBottom="12dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                        android:hint="Seleccionar modelo">
+
+                        <AutoCompleteTextView
+                            android:id="@+id/dropdownModel"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="none" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/txtModelInfo"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Lightning: 192x192, ~30 FPS (rapido)\nThunder: 256x256, ~15 FPS (preciso)"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:layout_marginTop="8dp" />
 
                     <TextView
                         android:id="@+id/txtModelStatus"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Buscando modelo..."
+                        android:text="Verificando..."
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:padding="12dp"
-                        android:background="@drawable/bg_model_status" />
+                        android:background="@drawable/bg_model_status"
+                        android:layout_marginTop="12dp" />
 
-                    <TextView
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnDownloadModel"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="El modelo MoveNet debe estar en:\n/sdcard/ONNX/ o /sdcard/Download/"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:layout_marginTop="8dp" />
+                        android:text="Descargar modelo"
+                        android:layout_marginTop="12dp"
+                        app:icon="@android:drawable/stat_sys_download"
+                        style="@style/Widget.Material3.Button.TonalButton" />
+
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/progressDownload"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        app:trackCornerRadius="4dp" />
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

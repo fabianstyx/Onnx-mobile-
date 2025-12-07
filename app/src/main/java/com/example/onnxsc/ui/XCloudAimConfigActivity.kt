@@ -35,6 +35,9 @@ class XCloudAimConfigActivity : AppCompatActivity() {
         binding = ActivityXcloudAimConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
+        // Ensure ConfigEngine is initialized before using it
+        ConfigEngine.init(this)
+        
         setupToolbar()
         setupAimPointDropdown()
         loadCurrentConfig()

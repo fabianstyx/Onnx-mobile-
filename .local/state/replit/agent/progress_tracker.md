@@ -50,3 +50,4 @@
 [x] 50. FIX: Changed xcloud_aim enable default from false to true in ScreenCaptureService.kt
 [x] 51. FIX: Added debug logging to BboxOverlayView (setSourceDimensions, updateDetections, onDraw)
 [x] 52. FIX: Added fallback to screen dimensions when sourceWidth/sourceHeight are 0 in onDraw
+[x] 53. FIX: XCloudAimConfigActivity crash - Added ConfigEngine.init(this) call in onCreate() to ensure config is loaded before accessing values

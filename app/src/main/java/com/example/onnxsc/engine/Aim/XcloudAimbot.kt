@@ -48,6 +48,8 @@ object XCloudAimbot {
     private var lastBitmapWidth = 0
     private var lastBitmapHeight = 0
     private var detectedPoseCount = 0
+    private var lastStatsUpdateTime = 0L
+    private var processingLatency = 0L
 
     fun init(context: Context? = null) {
         if (isRunning) return
@@ -93,11 +95,17 @@ object XCloudAimbot {
         val modelPath = findModelPath()
         if (modelPath == null) {
             logWarningThrottled("XCloudAim: Modelo MoveNet no encontrado. Copia movenet_singlepose_lightning.onnx a /sdcard/ONNX/ o /sdcard/Download/")
+            // Still update stats to show system is running (0 detections)
+            updateFps()
+            detectedPoseCount = 0
+            processingLatency = 0
+            updateStatsOverlay()
             return
         }
 
         lastBitmapWidth = bitmap.width
         lastBitmapHeight = bitmap.height
+        val frameStartTime = System.currentTimeMillis()
         updateFps()
 
         try {
@@ -138,9 +146,15 @@ object XCloudAimbot {
             val filteredPoses = filterPosesInIgnoreRegion(poses, bitmap.width, bitmap.height)
             detectedPoseCount = filteredPoses.size
             
+            // Calculate processing latency
+            processingLatency = System.currentTimeMillis() - frameStartTime
+            
+            // Update stats overlay (FPS, latency, detection count)
+            updateStatsOverlay()
+            
             // Debug logging every 60 frames
             if (frameCount % 60 == 0) {
-                android.util.Log.d("XCloudAimbot", "Poses detectadas: ${poses.size}, filtradas: ${filteredPoses.size}")
+                android.util.Log.d("XCloudAimbot", "Poses detectadas: ${poses.size}, filtradas: ${filteredPoses.size}, FPS: %.1f, latency: ${processingLatency}ms".format(currentFps))
             }
             
             if (filteredPoses.isNotEmpty()) {
@@ -158,6 +172,7 @@ object XCloudAimbot {
                     triggerFire(finalAim, best)
                 }
             } else {
+                // No poses detected - still update stats overlay to show FPS/latency
                 clearVisuals()
             }
 
@@ -183,6 +198,24 @@ object XCloudAimbot {
             lastError = message
             lastErrorTime = now
             android.util.Log.e("XCloudAimbot", message)
+        }
+    }
+    
+    private fun updateStatsOverlay() {
+        val context = appContext ?: return
+        
+        // Throttle stats updates to every 100ms to avoid flooding
+        val now = System.currentTimeMillis()
+        if (now - lastStatsUpdateTime < 100) return
+        lastStatsUpdateTime = now
+        
+        if (FloatingOverlayService.isRunning()) {
+            FloatingOverlayService.updateStats(
+                context,
+                currentFps.toDouble(),
+                processingLatency,
+                detectedPoseCount
+            )
         }
     }
 
@@ -611,7 +644,7 @@ object XCloudAimbot {
         
         // Log state for debugging (throttled)
         if (frameCount % 60 == 0) {
-            android.util.Log.d("XCloudAimbot", "drawVisuals: alwaysOn=$alwaysOn, espOnlyWhenAiming=$espOnlyWhenAiming, isAimActive=$isAimActive, poseCount=$detectedPoseCount")
+            android.util.Log.d("XCloudAimbot", "drawVisuals: alwaysOn=$alwaysOn, espOnlyWhenAiming=$espOnlyWhenAiming, isAimActive=$isAimActive, poseCount=$detectedPoseCount, srcDim=${srcWidth}x${srcHeight}, screenDim=${screenWidth}x${screenHeight}")
         }
         
         if (espOnlyWhenAiming && !isAimActive && !alwaysOn) {
@@ -646,6 +679,11 @@ object XCloudAimbot {
         val fovCircleColor = ConfigEngine.getString("xcloud_aim", "fov_circle_color", "rgba(255,255,255,0.3)")
         val tracersColor = ConfigEngine.getString("xcloud_aim", "tracers_color", "rgba(255,255,255,0.9)")
         val showIgnoreRegion = ConfigEngine.getBool("xcloud_aim", "draw_ignore_region_enabled", false)
+        
+        // Debug log every 30 frames
+        if (frameCount % 30 == 0) {
+            android.util.Log.d("XCloudAimbot", "updatePoseVisualsExtended: aimPos=(${scaledAimX}, ${scaledAimY}), fov=$fovRadius, showFov=$showFov, showSkeleton=$showSkeleton, keypointsLen=${keypoints.size}")
+        }
         
         FloatingOverlayService.updatePoseVisualsExtended(
             context,

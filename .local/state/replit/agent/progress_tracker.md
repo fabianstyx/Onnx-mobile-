@@ -60,3 +60,8 @@
 [x] 60. FIX: OnnxProcessor conflicting overloads - Renamed private getEnvironment() to getOrCreateEnvironment() to fix Kotlin compilation error
 [x] 61. FIX: XCloudAimbot model path search - Added 'models/' subdirectory to search paths in findModelPath()
 [x] 62. FIX: MainActivity - Added checkXCloudModelExists() and updated requestScreenCapture() to allow screen capture when XCloudAim is enabled with MoveNet model, without requiring main ONNX model
+[x] 63. FIX: Stats overlay showing "------" - XCloudAimbot now calls FloatingOverlayService.updateStats() to send FPS, latency, and detection count to the floating overlay
+[x] 64. FIX: Added processingLatency and lastStatsUpdateTime tracking to XCloudAimbot for accurate latency display
+[x] 65. FIX: Added updateStatsOverlay() method to XCloudAimbot with 100ms throttling to avoid flooding the overlay
+[x] 66. FIX: Stats update even when no model found - overlay shows FPS with 0 detections instead of "------"
+[x] 67. ADDED: Enhanced debug logging for drawVisuals and updatePoseVisualsExtended to diagnose FOV/skeleton visibility issues

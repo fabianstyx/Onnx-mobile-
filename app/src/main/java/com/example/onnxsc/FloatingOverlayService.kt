@@ -350,12 +350,17 @@ class FloatingOverlayService : Service() {
     }
 
     private fun showOverlays() {
-        if (isVisible.get()) return
+        if (isVisible.get()) {
+            Logger.info("[FloatingOverlay] showOverlays: already visible, skipping")
+            return
+        }
         isVisible.set(true)
+        Logger.info("[FloatingOverlay] showOverlays: setting visible=true, creating overlays")
         
         mainHandler.post {
             createStatusOverlay()
             createBboxOverlay()
+            Logger.info("[FloatingOverlay] showOverlays: overlays created successfully")
         }
     }
 
@@ -506,7 +511,10 @@ class FloatingOverlayService : Service() {
     }
 
     private fun updateStatsInternal(fps: Double, latency: Long, detectionCount: Int) {
-        if (!isVisible.get()) return
+        if (!isVisible.get()) {
+            Logger.info("[FloatingOverlay] updateStatsInternal: overlay not visible, skipping")
+            return
+        }
         
         mainHandler.post {
             txtFps?.text = "%.1f FPS".format(fps)

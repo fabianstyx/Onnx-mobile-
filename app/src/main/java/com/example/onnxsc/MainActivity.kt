@@ -491,15 +491,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestScreenCapture() {
-        if (modelUri == null) {
-            Logger.error("Primero selecciona un modelo ONNX")
-            return
+    private fun checkXCloudModelExists(): Boolean {
+        val modelType = ConfigEngine.getString("xcloud_aim", "model_type", "lightning")
+        val modelName = if (modelType.lowercase().contains("thunder")) {
+            "movenet_singlepose_thunder.onnx"
+        } else {
+            "movenet_singlepose_lightning.onnx"
         }
+        val modelsDir = java.io.File(getExternalFilesDir(null), "models")
+        val modelFile = java.io.File(modelsDir, modelName)
+        return modelFile.exists() && modelFile.canRead()
+    }
 
-        if (!OnnxProcessor.isModelLoaded()) {
-            Logger.error("El modelo aun no esta cargado")
-            return
+    private fun requestScreenCapture() {
+        val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
+        val xcloudModelExists = checkXCloudModelExists()
+        
+        if (!xcloudEnabled || !xcloudModelExists) {
+            if (modelUri == null) {
+                Logger.error("Primero selecciona un modelo ONNX")
+                return
+            }
+
+            if (!OnnxProcessor.isModelLoaded()) {
+                Logger.error("El modelo aun no esta cargado")
+                return
+            }
+        } else {
+            Logger.info("XCloudAim mode - usando modelo MoveNet")
         }
 
         if (useFloatingOverlay && !Settings.canDrawOverlays(this)) {

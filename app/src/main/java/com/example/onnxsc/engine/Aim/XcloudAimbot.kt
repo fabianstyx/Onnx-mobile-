@@ -229,6 +229,7 @@ object XCloudAimbot {
         val context = appContext
         val appPrivatePaths = if (context != null) {
             listOf(
+                "${context.getExternalFilesDir(null)?.absolutePath}/models/$modelName",
                 "${context.getExternalFilesDir(null)?.absolutePath}/$modelName",
                 "${context.getExternalFilesDir(null)?.absolutePath}/ONNX/$modelName",
                 "${context.filesDir.absolutePath}/$modelName"

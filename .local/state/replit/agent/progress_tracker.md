@@ -55,3 +55,4 @@
 [x] 55. FEATURE: Model selector - Added dropdown to choose between Lightning (fast, ~30 FPS) and Thunder (accurate, ~15 FPS)
 [x] 56. FEATURE: Auto download models - Added download button with progress bar, downloads from Hugging Face
 [x] 57. FEATURE: Model status display - Shows if model is downloaded, file size, and path
+[x] 58. FIX: Added INTERNET and ACCESS_NETWORK_STATE permissions to AndroidManifest.xml for model download

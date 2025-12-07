@@ -278,6 +278,10 @@ class MainActivity : ComponentActivity() {
             val modelName = uri.lastPathSegment?.substringAfterLast("/") ?: "desconocido"
             startActivity(com.example.onnxsc.ui.ModelConfigActivity.createIntent(this, modelName))
         }
+
+        binding.btnXCloudAim.setOnClickListener {
+            startActivity(com.example.onnxsc.ui.XCloudAimConfigActivity.createIntent(this))
+        }
     }
 
     private fun showModelInfoDialog() {

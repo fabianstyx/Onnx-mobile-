@@ -194,6 +194,15 @@
                             android:text="Configuracion Avanzada"
                             android:layout_marginTop="8dp"
                             style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnXCloudAim"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="XCloud Aim"
+                            android:layout_marginTop="8dp"
+                            app:icon="@drawable/ic_crosshair"
+                            style="@style/Widget.Material3.Button" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

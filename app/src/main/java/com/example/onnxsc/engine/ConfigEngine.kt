@@ -597,6 +597,22 @@ log_performance = @TOGGLE:false
         sections[sec]?.params?.set(k, newParam)
     }
     
+    fun setBool(section: String, key: String, value: Boolean) {
+        set(section, key, value)
+    }
+    
+    fun setInt(section: String, key: String, value: Int) {
+        set(section, key, value)
+    }
+    
+    fun setFloat(section: String, key: String, value: Float) {
+        set(section, key, value)
+    }
+    
+    fun setString(section: String, key: String, value: String) {
+        set(section, key, value)
+    }
+    
     fun save(): Boolean {
         val file = configFile ?: return false
         

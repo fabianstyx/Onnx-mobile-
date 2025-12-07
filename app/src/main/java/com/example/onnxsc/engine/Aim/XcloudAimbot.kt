@@ -62,8 +62,7 @@ object XCloudAimbot {
     }
 
     fun setAimActive(active: Boolean) {
-        val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", false)
-        isAimActive = if (alwaysOn) !active else active
+        isAimActive = active
     }
 
     private var lastModelWarningTime = 0L
@@ -71,8 +70,17 @@ object XCloudAimbot {
     private var lastError: String? = null
     
     fun processFrame(bitmap: Bitmap) {
-        if (!ConfigEngine.getBool("xcloud_aim", "enable", false)) return
-        if (!ConfigEngine.getBool("xcloud_aim", "detection_enabled", true)) return
+        val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
+        val detectionEnabled = ConfigEngine.getBool("xcloud_aim", "detection_enabled", true)
+        
+        if (!xcloudEnabled) {
+            if (frameCount % 300 == 0) android.util.Log.d("XCloudAimbot", "XCloudAim deshabilitado en config.ini (enable=false)")
+            return
+        }
+        if (!detectionEnabled) {
+            if (frameCount % 300 == 0) android.util.Log.d("XCloudAimbot", "Detección deshabilitada en config.ini")
+            return
+        }
 
         val skipFrames = ConfigEngine.getInt("xcloud_aim", "skip_frames", 2)
         if (skipFrames > 0) {
@@ -133,13 +141,19 @@ object XCloudAimbot {
             val filteredPoses = filterPosesInIgnoreRegion(poses, bitmap.width, bitmap.height)
             detectedPoseCount = filteredPoses.size
             
+            // Debug logging every 60 frames
+            if (frameCount % 60 == 0) {
+                android.util.Log.d("XCloudAimbot", "Poses detectadas: ${poses.size}, filtradas: ${filteredPoses.size}")
+            }
+            
             if (filteredPoses.isNotEmpty()) {
                 val best = selectBestTarget(filteredPoses)
                 if (best != null) {
                     val aimPoint = calculateAimPoint(best)
                     val finalAim = applyPredictionAndSmoothing(aimPoint, best.id)
                     
-                    if (isAimActive || ConfigEngine.getBool("xcloud_aim", "always_on_enabled", false)) {
+                    val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
+                    if (isAimActive || alwaysOn) {
                         moveAim(finalAim)
                     }
                     
@@ -208,8 +222,9 @@ object XCloudAimbot {
         val kps = mutableListOf<Keypoint>()
         var totalScore = 0f
 
-        val minKeypointConf = ConfigEngine.getFloat("xcloud_aim", "keypoint_confidence", 0.20f)
-        val minPoseScore = ConfigEngine.getFloat("xcloud_aim", "min_pose_score", 0.25f)
+        val minKeypointConf = ConfigEngine.getFloat("xcloud_aim", "keypoint_confidence", 0.35f)
+        val minPoseScore = ConfigEngine.getFloat("xcloud_aim", "min_pose_score", 0.40f)
+        val minValidKeypoints = ConfigEngine.getInt("xcloud_aim", "min_valid_keypoints", 10)
 
         for (i in keypointNames.indices) {
             val y = output.getOrElse(i * 3) { 0f }
@@ -225,7 +240,12 @@ object XCloudAimbot {
         }
 
         val validKeypoints = kps.count { it.score > 0 }
-        if (validKeypoints >= 5 && kps.isNotEmpty()) {
+        
+        // Require nose (index 0) to be valid - essential for human detection
+        val noseValid = kps.getOrNull(0)?.score ?: 0f > minKeypointConf
+        
+        // Need at least minValidKeypoints (default 10 of 17) AND nose must be detected
+        if (validKeypoints >= minValidKeypoints && noseValid && kps.isNotEmpty()) {
             val avgScore = totalScore / max(validKeypoints, 1)
             if (avgScore >= minPoseScore) {
                 poses.add(Pose(kps, avgScore, frameCount++))
@@ -508,15 +528,25 @@ object XCloudAimbot {
     }
 
     private fun drawVisuals(pose: Pose, aim: PointF, srcWidth: Int, srcHeight: Int) {
-        val context = appContext ?: return
-        if (!FloatingOverlayService.isRunning()) {
-            android.util.Log.w("XCloudAimbot", "FloatingOverlayService no está corriendo")
+        val context = appContext ?: run {
+            android.util.Log.w("XCloudAimbot", "drawVisuals: appContext es null")
             return
         }
         
-        val espOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "esp_show_only_when_aiming", true)
+        if (!FloatingOverlayService.isRunning()) {
+            android.util.Log.w("XCloudAimbot", "FloatingOverlayService no está corriendo - no se pueden mostrar overlays")
+            return
+        }
         
-        if (espOnlyWhenAiming && !isAimActive && !ConfigEngine.getBool("xcloud_aim", "always_on_enabled", false)) {
+        val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
+        val espOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "esp_show_only_when_aiming", false)
+        
+        // Log state for debugging (throttled)
+        if (frameCount % 60 == 0) {
+            android.util.Log.d("XCloudAimbot", "drawVisuals: alwaysOn=$alwaysOn, espOnlyWhenAiming=$espOnlyWhenAiming, isAimActive=$isAimActive, poseCount=$detectedPoseCount")
+        }
+        
+        if (espOnlyWhenAiming && !isAimActive && !alwaysOn) {
             return
         }
         

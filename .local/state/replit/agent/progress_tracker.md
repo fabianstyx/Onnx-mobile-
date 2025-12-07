@@ -42,3 +42,8 @@
 [x] 42. FIX: XCloudAimbot error handling - Added throttled logging for missing model warnings and errors
 [x] 43. FIX: XCloudAimbot processing moved to background thread (captureHandler) to avoid blocking UI and causing ANRs
 [x] 44. IMPORT COMPLETE - All code migrated successfully, ready for GitHub build
+[x] 45. FIX: False positive detections - increased min keypoints from 5 to 10, min_pose_score 0.25→0.40, keypoint_confidence 0.20→0.35
+[x] 46. FIX: Added min_valid_keypoints config option and nose validation requirement
+[x] 47. FIX: setAimActive logic bug - removed inverted logic
+[x] 48. FIX: Default values in code now match config.ini (always_on_enabled=true, esp_show_only_when_aiming=false)
+[x] 49. ADDED: Debug logging to XCloudAimbot for troubleshooting overlay issues

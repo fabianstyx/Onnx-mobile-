@@ -27,6 +27,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.aim.XCloudAimbot
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -77,7 +78,7 @@ class ScreenCaptureService : Service() {
     
     private val isCapturing = AtomicBoolean(false)
     private val lastProcessedTime = AtomicLong(0)
-    private val minFrameInterval = 16L // ~60 FPS target (optimizado para Snapdragon 888+)
+    private val minFrameInterval = 16L
     
     private var screenWidth = 0
     private var screenHeight = 0
@@ -85,8 +86,7 @@ class ScreenCaptureService : Service() {
     private var captureWidth = 0
     private var captureHeight = 0
     
-    // Optimización: capturar a resolución reducida para mejor rendimiento
-    private val captureScale = 0.75f // 75% de resolución = mejor FPS sin perder calidad de detección
+    private val captureScale = 0.75f
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -99,7 +99,7 @@ class ScreenCaptureService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-if (!xCloudAimbotInitialized) {
+        if (!xCloudAimbotInitialized) {
             XCloudAimbot.init(this)
             xCloudAimbotInitialized = true
         }
@@ -195,8 +195,6 @@ if (!xCloudAimbotInitialized) {
             return
         }
         
-        // IMPORTANTE: Iniciar FloatingOverlayService ANTES de empezar a capturar
-        // para que XCloudAimbot pueda mostrar los overlays desde el primer frame
         val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
         if (xcloudEnabled && Settings.canDrawOverlays(this)) {
             startFloatingOverlayServiceInternal()
@@ -221,15 +219,12 @@ if (!xCloudAimbotInitialized) {
                 screenDensity = metrics.densityDpi
             }
             
-            // Optimización: capturar a resolución reducida para mejor FPS
             captureWidth = (screenWidth * captureScale).toInt()
             captureHeight = (screenHeight * captureScale).toInt()
             
-            // Thread de alta prioridad para captura
             captureThread = HandlerThread("ScreenCapture", android.os.Process.THREAD_PRIORITY_DISPLAY).apply { start() }
             captureHandler = Handler(captureThread!!.looper)
             
-            // Buffer de 3 imágenes para pipeline más fluido
             imageReader = ImageReader.newInstance(
                 captureWidth, 
                 captureHeight, 
@@ -258,7 +253,6 @@ if (!xCloudAimbotInitialized) {
             isCapturing.set(true)
             setupImageListener()
             
-            // Notify that capture has started
             mainHandler.post {
                 startedCallback?.invoke()
             }
@@ -272,108 +266,97 @@ if (!xCloudAimbotInitialized) {
     }
     
     private fun setupImageListener() {
-    imageReader?.setOnImageAvailableListener({ reader ->
-        
-        if (!isCapturing.get()) {
-            try { reader.acquireLatestImage()?.close() } catch (e: Exception) { }
-            return@setOnImageAvailableListener
-        }
-        
-        val now = System.currentTimeMillis()
-        if (now - lastProcessedTime.get() < minFrameInterval) {
-            try {
-                reader.acquireLatestImage()?.close()
-            } catch (e: Exception) { }
-            return@setOnImageAvailableListener
-        }
-        
-        val image = try {
-            reader.acquireLatestImage()
-        } catch (e: Exception) {
-            null
-        }
-        
-        if (image == null) return@setOnImageAvailableListener
-        
-        var bitmap: Bitmap? = null
-        var finalBitmap: Bitmap? = null
-        
-        try {
-            lastProcessedTime.set(now)
+        imageReader?.setOnImageAvailableListener({ reader ->
             
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * captureWidth
-            
-            val bitmapWidth = captureWidth + rowPadding / pixelStride
-            bitmap = Bitmap.createBitmap(
-                bitmapWidth,
-                captureHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            bitmap.copyPixelsFromBuffer(buffer)
-            image.close()
-            
-            finalBitmap = if (bitmapWidth > captureWidth) {
-                val bitmapToRecycle = bitmap
-                Bitmap.createBitmap(bitmapToRecycle, 0, 0, captureWidth, captureHeight).also {
-                    bitmapToRecycle?.recycle()
-                    bitmap = null
-                }
-            } else {
-                bitmap
+            if (!isCapturing.get()) {
+                try { reader.acquireLatestImage()?.close() } catch (e: Exception) { }
+                return@setOnImageAvailableListener
             }
             
-            val bitmapToSend = finalBitmap
-            finalBitmap = null
-            
-            // Process XCloudAimbot on capture thread (background) to avoid blocking UI
-            if (ConfigEngine.getBool("xcloud_aim", "enable", true)) {
+            val now = System.currentTimeMillis()
+            if (now - lastProcessedTime.get() < minFrameInterval) {
                 try {
-                    val aimBitmap = bitmapToSend!!.copy(bitmapToSend!!.config, false)
-                    if (aimBitmap != null) {
-                        captureHandler?.post {
-                            try {
-                                XCloudAimbot.processFrame(aimBitmap)
-                            } catch (e: Exception) {
-                                mainHandler.post {
-                                    errorCallback?.invoke("[XCloudAim] Error: ${e.message}")
-                                }
-                            } finally {
-                                try { aimBitmap.recycle() } catch (_: Exception) { }
-                            }
+                    reader.acquireLatestImage()?.close()
+                } catch (e: Exception) { }
+                return@setOnImageAvailableListener
+            }
+            
+            val image = try {
+                reader.acquireLatestImage()
+            } catch (e: Exception) {
+                null
+            }
+            
+            if (image == null) return@setOnImageAvailableListener
+            
+            try {
+                lastProcessedTime.set(now)
+                
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                
+                val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
+                
+                if (xcloudEnabled) {
+                    buffer.rewind()
+                    try {
+                        XCloudAimbot.processFrame(
+                            buffer,
+                            captureWidth,
+                            captureHeight,
+                            pixelStride,
+                            rowStride
+                        )
+                    } catch (e: Exception) {
+                        mainHandler.post {
+                            errorCallback?.invoke("[XCloudAim] Error: ${e.message}")
                         }
                     }
-                } catch (e: Exception) {
-                    // Bitmap copy failed, skip this frame for aimbot
+                }
+                
+                if (frameCallback != null) {
+                    val rowPadding = rowStride - pixelStride * captureWidth
+                    val bitmapWidth = captureWidth + rowPadding / pixelStride
+                    
+                    buffer.rewind()
+                    val bitmap = Bitmap.createBitmap(
+                        bitmapWidth,
+                        captureHeight,
+                        Bitmap.Config.ARGB_8888
+                    )
+                    bitmap.copyPixelsFromBuffer(buffer)
+                    
+                    val finalBitmap = if (bitmapWidth > captureWidth) {
+                        val cropped = Bitmap.createBitmap(bitmap, 0, 0, captureWidth, captureHeight)
+                        bitmap.recycle()
+                        cropped
+                    } else {
+                        bitmap
+                    }
+                    
+                    mainHandler.post {
+                        try {
+                            frameCallback?.invoke(finalBitmap)
+                        } catch (e: Exception) {
+                            try { finalBitmap.recycle() } catch (_: Exception) { }
+                        }
+                    }
+                }
+                
+                image.close()
+                
+            } catch (e: OutOfMemoryError) {
+                try { image.close() } catch (_: Exception) { }
+                System.gc()
+            } catch (e: Exception) {
+                try { image.close() } catch (_: Exception) { }
+                mainHandler.post {
+                    errorCallback?.invoke("Error procesando frame: ${e.message}")
                 }
             }
-            
-            // Pass to main frame callback on UI thread
-            mainHandler.post {
-                try {
-                    frameCallback?.invoke(bitmapToSend!!)
-                } catch (e: Exception) {
-                    try { bitmapToSend?.recycle() } catch (_: Exception) { }
-                }
-            }
-            
-        } catch (e: OutOfMemoryError) {
-            try { image.close() } catch (_: Exception) { }
-            try { bitmap?.recycle() } catch (_: Exception) { }
-            try { finalBitmap?.recycle() } catch (_: Exception) { }
-            System.gc()
-        } catch (e: Exception) {
-            try { image.close() } catch (_: Exception) { }
-            try { bitmap?.recycle() } catch (_: Exception) { }
-            try { finalBitmap?.recycle() } catch (_: Exception) { }
-            mainHandler.post {
-                errorCallback?.invoke("Error procesando frame: ${e.message}")
-            }
-        }
-    }, captureHandler)
+        }, captureHandler)
     }
     
     private fun stopCapture() {
@@ -384,7 +367,6 @@ if (!xCloudAimbotInitialized) {
         
         cleanup()
         
-        // Notify that capture has stopped
         mainHandler.post {
             stoppedCallback?.invoke()
         }
@@ -505,8 +487,8 @@ if (!xCloudAimbotInitialized) {
     }
 
     override fun onDestroy() {
-    cleanup()
-    stopForeground(STOP_FOREGROUND_REMOVE)
-    super.onDestroy()
-      }
+        cleanup()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        super.onDestroy()
+    }
 }

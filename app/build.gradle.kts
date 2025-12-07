@@ -13,11 +13,26 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-O3 -ffast-math -DANDROID_ARM_NEON=ON"
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
     }
 
     buildTypes {
         getByName("debug") {
             isDebuggable = true
+        }
+        getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -33,6 +48,15 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    ndkVersion = "26.1.10909125"
 }
 
 dependencies {
@@ -42,12 +66,8 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     
-    // ONNX Runtime Android - versión estable más reciente
+    // ONNX Runtime Android - versión estable con NNAPI
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
-    
-    // TensorFlow Lite Core y Support
-    implementation("org.tensorflow:tensorflow-lite:2.15.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     
     // Activity KTX para registerForActivityResult
     implementation("androidx.activity:activity-ktx:1.8.2")

@@ -8,6 +8,7 @@ import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.ActionEngine
 import ai.onnxruntime.*
 import kotlin.math.*
+import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.util.Random
 
@@ -17,6 +18,9 @@ object XCloudAimbot {
     private var ortSession: OrtSession? = null
     private var isRunning = false
     private var appContext: Context? = null
+    
+    private var inputFloatBuffer: FloatBuffer? = null
+    private var inputBufferSize = 0
 
     private val keypointNames = listOf(
         "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -45,11 +49,12 @@ object XCloudAimbot {
     private var skipCounter = 0
     private var isAimActive = false
     
-    private var lastBitmapWidth = 0
-    private var lastBitmapHeight = 0
+    private var captureWidth = 0
+    private var captureHeight = 0
     private var detectedPoseCount = 0
     private var lastStatsUpdateTime = 0L
     private var processingLatency = 0L
+    private var lastDeltaTime = 16.67f
 
     fun init(context: Context? = null) {
         if (isRunning) return
@@ -61,6 +66,38 @@ object XCloudAimbot {
             val display = it.resources.displayMetrics
             screenWidth = display.widthPixels
             screenHeight = display.heightPixels
+            ActionEngine.setScreenCenter(screenWidth / 2f, screenHeight / 2f)
+        }
+        
+        initializeSession()
+    }
+    
+    private fun initializeSession() {
+        val modelPath = findModelPath() ?: return
+        
+        try {
+            val sessionOptions = OrtSession.SessionOptions().apply {
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                setIntraOpNumThreads(4)
+                
+                try {
+                    addNnapi()
+                    android.util.Log.i("XCloudAimbot", "NNAPI ejecutor habilitado")
+                } catch (e: Exception) {
+                    android.util.Log.w("XCloudAimbot", "NNAPI no disponible, usando CPU: ${e.message}")
+                }
+            }
+            
+            ortSession = ortEnv!!.createSession(modelPath, sessionOptions)
+            android.util.Log.i("XCloudAimbot", "Sesion ONNX inicializada: $modelPath")
+            
+            val modelType = ConfigEngine.getString("xcloud_aim", "model_type", "SINGLEPOSE_LIGHTNING")
+            val inputSize = if (modelType == "SINGLEPOSE_THUNDER") 256 else 192
+            inputBufferSize = inputSize * inputSize * 3
+            inputFloatBuffer = FloatBuffer.allocate(inputBufferSize)
+            
+        } catch (e: Exception) {
+            android.util.Log.e("XCloudAimbot", "Error inicializando sesion: ${e.message}")
         }
     }
 
@@ -72,16 +109,17 @@ object XCloudAimbot {
     private var lastErrorTime = 0L
     private var lastError: String? = null
     
-    fun processFrame(bitmap: Bitmap) {
+    fun processFrame(
+        buffer: ByteBuffer,
+        width: Int,
+        height: Int,
+        pixelStride: Int,
+        rowStride: Int
+    ) {
         val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
         val detectionEnabled = ConfigEngine.getBool("xcloud_aim", "detection_enabled", true)
         
-        if (!xcloudEnabled) {
-            if (frameCount % 300 == 0) android.util.Log.d("XCloudAimbot", "XCloudAim deshabilitado en config.ini (enable=false)")
-            return
-        }
-        if (!detectionEnabled) {
-            if (frameCount % 300 == 0) android.util.Log.d("XCloudAimbot", "Detección deshabilitada en config.ini")
+        if (!xcloudEnabled || !detectionEnabled) {
             return
         }
 
@@ -91,43 +129,50 @@ object XCloudAimbot {
             if (skipCounter < skipFrames) return
             skipCounter = 0
         }
+        
+        captureWidth = width
+        captureHeight = height
 
-        val modelPath = findModelPath()
-        if (modelPath == null) {
-            logWarningThrottled("XCloudAim: Modelo MoveNet no encontrado. Copia movenet_singlepose_lightning.onnx a /sdcard/ONNX/ o /sdcard/Download/")
-            // Still update stats to show system is running (0 detections)
-            updateFps()
-            detectedPoseCount = 0
-            processingLatency = 0
-            updateStatsOverlay()
-            return
+        if (ortSession == null) {
+            initializeSession()
+            if (ortSession == null) {
+                logWarningThrottled("XCloudAim: Modelo MoveNet no encontrado")
+                updateFps()
+                detectedPoseCount = 0
+                updateStatsOverlay()
+                return
+            }
         }
 
-        lastBitmapWidth = bitmap.width
-        lastBitmapHeight = bitmap.height
         val frameStartTime = System.currentTimeMillis()
         updateFps()
 
         try {
-            if (ortSession == null) {
-                val sessionOptions = OrtSession.SessionOptions()
-                try {
-                    sessionOptions.addNnapi()
-                } catch (e: Exception) {
-                    // NNAPI not available, use CPU
-                }
-                ortSession = ortEnv!!.createSession(modelPath, sessionOptions)
-                android.util.Log.i("XCloudAimbot", "Modelo ONNX cargado: $modelPath")
-            }
-
             val inputName = ortSession!!.inputNames.iterator().next()
             
             val modelType = ConfigEngine.getString("xcloud_aim", "model_type", "SINGLEPOSE_LIGHTNING")
             val inputSize = if (modelType == "SINGLEPOSE_THUNDER") 256 else 192
             
-            val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
-            val inputBuffer = bitmapToFloatBuffer(resized, inputSize)
-            val inputTensor = OnnxTensor.createTensor(ortEnv!!, inputBuffer, longArrayOf(1, inputSize.toLong(), inputSize.toLong(), 3))
+            val inputData: FloatArray = if (NativeProcessor.isAvailable()) {
+                val startNdk = System.nanoTime()
+                val result = NativeProcessor.preprocessFrame(
+                    buffer, width, height, pixelStride, rowStride, inputSize
+                )
+                val ndkTime = (System.nanoTime() - startNdk) / 1000
+                if (frameCount % 60 == 0) {
+                    android.util.Log.d("XCloudAimbot", "NDK preprocessing: ${ndkTime}µs")
+                }
+                result
+            } else {
+                preprocessByteBuffer(buffer, width, height, pixelStride, rowStride, inputSize)
+            }
+            
+            val inputBuffer = FloatBuffer.wrap(inputData)
+            val inputTensor = OnnxTensor.createTensor(
+                ortEnv!!, 
+                inputBuffer, 
+                longArrayOf(1, inputSize.toLong(), inputSize.toLong(), 3)
+            )
 
             val outputs = ortSession!!.run(mapOf(inputName to inputTensor))
             val outputValue = outputs[0].value
@@ -139,22 +184,21 @@ object XCloudAimbot {
                     arr[0][0].flatMap { it.toList() }.toFloatArray()
                 }
                 is FloatArray -> outputValue
-                else -> return
+                else -> {
+                    inputTensor.close()
+                    return
+                }
             }
 
-            val poses = parseMoveNetOutput(outputArray, bitmap.width, bitmap.height)
-            val filteredPoses = filterPosesInIgnoreRegion(poses, bitmap.width, bitmap.height)
+            val poses = parseMoveNetOutput(outputArray, width, height)
+            val filteredPoses = filterPosesInIgnoreRegion(poses, width, height)
             detectedPoseCount = filteredPoses.size
             
-            // Calculate processing latency
             processingLatency = System.currentTimeMillis() - frameStartTime
-            
-            // Update stats overlay (FPS, latency, detection count)
             updateStatsOverlay()
             
-            // Debug logging every 60 frames
             if (frameCount % 60 == 0) {
-                android.util.Log.d("XCloudAimbot", "Poses detectadas: ${poses.size}, filtradas: ${filteredPoses.size}, FPS: %.1f, latency: ${processingLatency}ms".format(currentFps))
+                android.util.Log.d("XCloudAimbot", "Poses: ${poses.size}, filtradas: ${filteredPoses.size}, FPS: %.1f, latency: ${processingLatency}ms".format(currentFps))
             }
             
             if (filteredPoses.isNotEmpty()) {
@@ -165,28 +209,68 @@ object XCloudAimbot {
                     
                     val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
                     if (isAimActive || alwaysOn) {
-                        moveAim(finalAim)
+                        moveAimRelative(finalAim)
                     }
                     
-                    drawVisuals(best, finalAim, bitmap.width, bitmap.height)
+                    drawVisuals(best, finalAim, width, height)
                     triggerFire(finalAim, best)
                 }
             } else {
-                // No poses detected - draw FOV circle anyway if enabled, and update stats
-                drawFovOnlyVisuals(bitmap.width, bitmap.height)
+                drawFovOnlyVisuals(width, height)
             }
 
             inputTensor.close()
-            resized.recycle()
 
         } catch (e: Exception) {
             logErrorThrottled("XCloudAim error: ${e.message}")
         }
     }
     
+    @Deprecated("Use processFrame(ByteBuffer) for better performance")
+    fun processFrame(bitmap: Bitmap) {
+        val buffer = ByteBuffer.allocateDirect(bitmap.byteCount)
+        bitmap.copyPixelsToBuffer(buffer)
+        buffer.rewind()
+        processFrame(buffer, bitmap.width, bitmap.height, 4, bitmap.width * 4)
+    }
+    
+    private fun preprocessByteBuffer(
+        buffer: ByteBuffer,
+        width: Int,
+        height: Int,
+        pixelStride: Int,
+        rowStride: Int,
+        targetSize: Int
+    ): FloatArray {
+        val output = FloatArray(targetSize * targetSize * 3)
+        val scaleX = width.toFloat() / targetSize
+        val scaleY = height.toFloat() / targetSize
+        
+        var outIdx = 0
+        for (y in 0 until targetSize) {
+            val srcY = (y * scaleY).toInt()
+            val rowOffset = srcY * rowStride
+            
+            for (x in 0 until targetSize) {
+                val srcX = (x * scaleX).toInt()
+                val pixelOffset = rowOffset + srcX * pixelStride
+                
+                val r = buffer.get(pixelOffset).toInt() and 0xFF
+                val g = buffer.get(pixelOffset + 1).toInt() and 0xFF
+                val b = buffer.get(pixelOffset + 2).toInt() and 0xFF
+                
+                output[outIdx++] = r / 255f
+                output[outIdx++] = g / 255f
+                output[outIdx++] = b / 255f
+            }
+        }
+        
+        return output
+    }
+    
     private fun logWarningThrottled(message: String) {
         val now = System.currentTimeMillis()
-        if (now - lastModelWarningTime > 5000) { // Log every 5 seconds max
+        if (now - lastModelWarningTime > 5000) {
             lastModelWarningTime = now
             android.util.Log.w("XCloudAimbot", message)
         }
@@ -194,7 +278,7 @@ object XCloudAimbot {
     
     private fun logErrorThrottled(message: String) {
         val now = System.currentTimeMillis()
-        if (message != lastError || now - lastErrorTime > 3000) { // Log different errors or same error every 3 seconds
+        if (message != lastError || now - lastErrorTime > 3000) {
             lastError = message
             lastErrorTime = now
             android.util.Log.e("XCloudAimbot", message)
@@ -204,12 +288,10 @@ object XCloudAimbot {
     private fun updateStatsOverlay() {
         val context = appContext ?: return
         
-        // Throttle stats updates to every 100ms to avoid flooding
         val now = System.currentTimeMillis()
         if (now - lastStatsUpdateTime < 100) return
         lastStatsUpdateTime = now
         
-        // Always try to update stats - the service will auto-start overlays if needed
         try {
             FloatingOverlayService.updateStats(
                 context,
@@ -237,13 +319,8 @@ object XCloudAimbot {
             val mainModelPath = OnnxProcessor.getModelPath()
             if (mainModelPath != null) {
                 val file = java.io.File(mainModelPath)
-                if (file.exists() && file.canRead()) {
-                    if (isMoveNetCompatible(mainModelPath)) {
-                        android.util.Log.d("XCloudAimbot", "Usando modelo principal (MoveNet compatible): $mainModelPath")
-                        return mainModelPath
-                    } else {
-                        android.util.Log.d("XCloudAimbot", "Modelo principal no es MoveNet, buscando modelo dedicado...")
-                    }
+                if (file.exists() && file.canRead() && isMoveNetCompatible(mainModelPath)) {
+                    return mainModelPath
                 }
             }
         }
@@ -252,7 +329,6 @@ object XCloudAimbot {
         if (configPath.isNotEmpty()) {
             val file = java.io.File(configPath)
             if (file.exists() && file.canRead()) {
-                android.util.Log.d("XCloudAimbot", "Modelo encontrado en config: $configPath")
                 return configPath
             }
         }
@@ -280,36 +356,16 @@ object XCloudAimbot {
             "/sdcard/ONNX/$modelName",
             "/sdcard/Download/$modelName",
             "/storage/emulated/0/ONNX/$modelName",
-            "/storage/emulated/0/Download/$modelName",
-            "/sdcard/Documents/$modelName",
-            "/storage/emulated/0/Documents/$modelName"
+            "/storage/emulated/0/Download/$modelName"
         )
         
         for (path in possiblePaths) {
             val file = java.io.File(path)
             if (file.exists() && file.canRead()) {
-                android.util.Log.d("XCloudAimbot", "Modelo encontrado en: $path")
                 return path
             }
         }
         return null
-    }
-
-    private fun bitmapToFloatBuffer(bitmap: Bitmap, size: Int): FloatBuffer {
-        val pixels = IntArray(size * size)
-        bitmap.getPixels(pixels, 0, size, 0, 0, size, size)
-        
-        val buffer = FloatBuffer.allocate(size * size * 3)
-        for (y in 0 until size) {
-            for (x in 0 until size) {
-                val pixel = pixels[y * size + x]
-                buffer.put(((pixel shr 16) and 0xFF) / 255f)
-                buffer.put(((pixel shr 8) and 0xFF) / 255f)
-                buffer.put((pixel and 0xFF) / 255f)
-            }
-        }
-        buffer.rewind()
-        return buffer
     }
 
     private fun updateFps() {
@@ -317,10 +373,12 @@ object XCloudAimbot {
         if (lastFrameTime > 0) {
             val delta = now - lastFrameTime
             if (delta > 0) {
+                lastDeltaTime = delta.toFloat()
                 currentFps = 0.9f * currentFps + 0.1f * (1000f / delta)
             }
         }
         lastFrameTime = now
+        frameCount++
     }
 
     private fun parseMoveNetOutput(output: FloatArray, srcW: Int, srcH: Int): List<Pose> {
@@ -346,15 +404,12 @@ object XCloudAimbot {
         }
 
         val validKeypoints = kps.count { it.score > 0 }
-        
-        // Require nose (index 0) to be valid - essential for human detection
         val noseValid = kps.getOrNull(0)?.score ?: 0f > minKeypointConf
         
-        // Need at least minValidKeypoints (default 10 of 17) AND nose must be detected
         if (validKeypoints >= minValidKeypoints && noseValid && kps.isNotEmpty()) {
             val avgScore = totalScore / max(validKeypoints, 1)
             if (avgScore >= minPoseScore) {
-                poses.add(Pose(kps, avgScore, frameCount++))
+                poses.add(Pose(kps, avgScore, frameCount))
             }
         }
         return poses
@@ -391,17 +446,23 @@ object XCloudAimbot {
         val targetPriority = ConfigEngine.getString("xcloud_aim", "target_priority", "center")
         val targetSwitchCooldown = ConfigEngine.getInt("xcloud_aim", "target_switch_cooldown_ms", 0).toLong()
 
+        val scaleX = screenWidth.toFloat() / captureWidth.coerceAtLeast(1)
+        val scaleY = screenHeight.toFloat() / captureHeight.coerceAtLeast(1)
+
         val validPoses = poses.filter { pose ->
             if (pose.keypoints.isEmpty()) return@filter false
             val aimPart = ConfigEngine.getString("xcloud_aim", "aim_point", "nose")
             val kpIndex = keypointNames.indexOf(aimPart).coerceIn(0, pose.keypoints.size - 1)
             val kp = pose.keypoints[kpIndex]
             
+            val screenX = kp.x * scaleX
+            val screenY = kp.y * scaleY
+            
             val betterDetection = ConfigEngine.getBool("xcloud_aim", "better_detection", true)
             if (betterDetection) {
                 true
             } else {
-                val dist = hypot(kp.x - centerX, kp.y - centerY)
+                val dist = hypot(screenX - centerX, screenY - centerY)
                 dist <= fov
             }
         }
@@ -421,13 +482,13 @@ object XCloudAimbot {
                 val aimPart = ConfigEngine.getString("xcloud_aim", "aim_point", "nose")
                 val kpIndex = keypointNames.indexOf(aimPart).coerceIn(0, pose.keypoints.size - 1)
                 val kp = pose.keypoints[kpIndex]
-                hypot(kp.x - currentAim.x, kp.y - currentAim.y)
+                hypot(kp.x * scaleX - currentAim.x, kp.y * scaleY - currentAim.y)
             }
             else -> validPoses.minByOrNull { pose ->
                 val aimPart = ConfigEngine.getString("xcloud_aim", "aim_point", "nose")
                 val kpIndex = keypointNames.indexOf(aimPart).coerceIn(0, pose.keypoints.size - 1)
                 val kp = pose.keypoints[kpIndex]
-                hypot(kp.x - centerX, kp.y - centerY)
+                hypot(kp.x * scaleX - centerX, kp.y * scaleY - centerY)
             }
         }
 
@@ -457,7 +518,10 @@ object XCloudAimbot {
             offsetY = -bodyOffset * 100
         }
 
-        return PointF(kp.x, kp.y + offsetY)
+        val scaleX = screenWidth.toFloat() / captureWidth.coerceAtLeast(1)
+        val scaleY = screenHeight.toFloat() / captureHeight.coerceAtLeast(1)
+
+        return PointF(kp.x * scaleX, kp.y * scaleY + offsetY)
     }
 
     private fun applyPredictionAndSmoothing(target: PointF, targetId: Int): PointF {
@@ -470,6 +534,8 @@ object XCloudAimbot {
 
         var predicted = PointF(target.x, target.y)
         
+        val deltaTime = lastDeltaTime / 1000f
+
         if (ConfigEngine.getBool("xcloud_aim", "prediction_enabled", true) && history.size >= 3) {
             val prevIndex = max(0, history.size - 3)
             val velX = (target.x - history[prevIndex].x) / 3f
@@ -482,12 +548,12 @@ object XCloudAimbot {
             val smoothedVelY = velHistory.map { it.y }.average().toFloat()
             
             val maxVelocity = ConfigEngine.getInt("xcloud_aim", "max_velocity", 1000).toFloat()
-            val clampedVelX = smoothedVelX.coerceIn(-maxVelocity / 60f, maxVelocity / 60f)
-            val clampedVelY = smoothedVelY.coerceIn(-maxVelocity / 60f, maxVelocity / 60f)
+            val clampedVelX = smoothedVelX.coerceIn(-maxVelocity * deltaTime, maxVelocity * deltaTime)
+            val clampedVelY = smoothedVelY.coerceIn(-maxVelocity * deltaTime, maxVelocity * deltaTime)
             
             val latencyComp = ConfigEngine.getInt("xcloud_aim", "latency_compensation", 75)
             val predictionScale = ConfigEngine.getFloat("xcloud_aim", "prediction_scale", 1.10f)
-            val predictionFrames = latencyComp / 16.67f
+            val predictionFrames = (latencyComp / 1000f) / deltaTime
             
             predicted = PointF(
                 target.x + clampedVelX * predictionFrames * predictionScale,
@@ -531,18 +597,13 @@ object XCloudAimbot {
             }
         }
 
-        if (ConfigEngine.getBool("xcloud_aim", "fps_compensation", true)) {
-            val minFpsThreshold = ConfigEngine.getInt("xcloud_aim", "min_fps_threshold", 30)
-            if (currentFps < minFpsThreshold && currentFps > 0) {
-                speedPercent *= minFpsThreshold / currentFps
-            }
-        }
+        val timeScaledSpeed = speedPercent * (deltaTime * 60f)
 
         val smoothingFactor = ConfigEngine.getFloat("xcloud_aim", "smoothing_factor", 0.20f)
         val finalSmoothing = if (ConfigEngine.getBool("xcloud_aim", "enable_smoothing", true)) {
-            speedPercent * (1f - smoothingFactor) + smoothingFactor
+            timeScaledSpeed * (1f - smoothingFactor) + smoothingFactor
         } else {
-            speedPercent
+            timeScaledSpeed
         }
 
         currentAim.x += (predicted.x - currentAim.x) * finalSmoothing.coerceIn(0.05f, 1f)
@@ -551,26 +612,24 @@ object XCloudAimbot {
         return PointF(currentAim.x, currentAim.y)
     }
 
-    private fun moveAim(point: PointF) {
-        if (!ConfigEngine.getBool("xcloud_aim", "controller_enabled", false)) {
-            val centerX = screenWidth / 2f
-            val centerY = screenHeight / 2f
-            
-            val deltaX = point.x - centerX
-            val deltaY = point.y - centerY
-            
-            val deadZone = ConfigEngine.getFloat("xcloud_aim", "dead_zone", 0.20f) * 100
-            if (abs(deltaX) < deadZone && abs(deltaY) < deadZone) return
-            
-            val sensX = ConfigEngine.getFloat("xcloud_aim", "sensitivity_x", 2.0f)
-            val sensY = ConfigEngine.getFloat("xcloud_aim", "sensitivity_y", 2.0f)
-            
-            val moveX = centerX + deltaX * sensX * 0.1f
-            val moveY = centerY + deltaY * sensY * 0.1f
-            
-            val processingInterval = ConfigEngine.getInt("xcloud_aim", "processing_interval_ms", 5).toLong()
-            ActionEngine.swipe(centerX, centerY, moveX, moveY, processingInterval)
-        }
+    private fun moveAimRelative(point: PointF) {
+        val centerX = screenWidth / 2f
+        val centerY = screenHeight / 2f
+        
+        val deltaX = point.x - centerX
+        val deltaY = point.y - centerY
+        
+        val deadZone = ConfigEngine.getFloat("xcloud_aim", "dead_zone", 0.20f) * 100
+        if (abs(deltaX) < deadZone && abs(deltaY) < deadZone) return
+        
+        val sensX = ConfigEngine.getFloat("xcloud_aim", "sensitivity_x", 2.0f)
+        val sensY = ConfigEngine.getFloat("xcloud_aim", "sensitivity_y", 2.0f)
+        
+        val moveX = deltaX * sensX * 0.1f
+        val moveY = deltaY * sensY * 0.1f
+        
+        val processingInterval = ConfigEngine.getInt("xcloud_aim", "processing_interval_ms", 5).toLong()
+        ActionEngine.moveRelative(moveX, moveY, processingInterval.coerceAtLeast(1))
     }
 
     private fun triggerFire(aim: PointF, pose: Pose) {
@@ -615,39 +674,14 @@ object XCloudAimbot {
 
     private fun performShoot() {
         val shootButton = ConfigEngine.getString("xcloud_aim", "shoot_button", "RT")
-        
-        when (shootButton) {
-            "A" -> ActionEngine.keyPress("BUTTON_A")
-            "B" -> ActionEngine.keyPress("BUTTON_B")
-            "X" -> ActionEngine.keyPress("BUTTON_X")
-            "Y" -> ActionEngine.keyPress("BUTTON_Y")
-            "LB" -> ActionEngine.keyPress("BUTTON_L1")
-            "RB" -> ActionEngine.keyPress("BUTTON_R1")
-            "LT" -> ActionEngine.keyPress("BUTTON_L2")
-            "RT" -> ActionEngine.keyPress("BUTTON_R2")
-            else -> {
-                val centerX = screenWidth / 2f
-                val shootY = screenHeight * 0.7f
-                ActionEngine.tap(centerX + screenWidth * 0.3f, shootY)
-            }
-        }
+        ActionEngine.gameButtonPress(shootButton)
     }
 
     private fun drawVisuals(pose: Pose, aim: PointF, srcWidth: Int, srcHeight: Int) {
-        val context = appContext ?: run {
-            if (frameCount % 60 == 0) android.util.Log.w("XCloudAimbot", "drawVisuals: appContext es null")
-            return
-        }
-        
-        // Don't check isRunning - just try to send. The service will auto-start overlays
+        val context = appContext ?: return
         
         val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
         val espOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "esp_show_only_when_aiming", false)
-        
-        // Log state for debugging (throttled)
-        if (frameCount % 60 == 0) {
-            android.util.Log.d("XCloudAimbot", "drawVisuals: alwaysOn=$alwaysOn, espOnlyWhenAiming=$espOnlyWhenAiming, isAimActive=$isAimActive, poseCount=$detectedPoseCount, srcDim=${srcWidth}x${srcHeight}, screenDim=${screenWidth}x${screenHeight}")
-        }
         
         if (espOnlyWhenAiming && !isAimActive && !alwaysOn) {
             return
@@ -656,7 +690,6 @@ object XCloudAimbot {
         val showSkeleton = ConfigEngine.getBool("xcloud_aim", "skeleton_enabled", true)
         val fovEnabled = ConfigEngine.getBool("xcloud_aim", "fov_circle_enabled", true)
         val fovShowOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "fov_circle_show_only_when_aiming", true)
-        // Show FOV if: enabled AND (not fovShowOnlyWhenAiming OR isAimActive OR alwaysOn)
         val showFov = fovEnabled && (!fovShowOnlyWhenAiming || isAimActive || alwaysOn)
         val showTracers = ConfigEngine.getBool("xcloud_aim", "tracers_enabled", true)
         val fovRadius = ConfigEngine.getInt("xcloud_aim", "fov_radius", 136).toFloat()
@@ -670,9 +703,6 @@ object XCloudAimbot {
             keypoints[i * 2 + 1] = pose.keypoints[i].y * scaleY
         }
         
-        val scaledAimX = aim.x * scaleX
-        val scaledAimY = aim.y * scaleY
-        
         val showCrosshair = ConfigEngine.getBool("xcloud_aim", "crosshair_enabled", true)
         val crosshairStyle = ConfigEngine.getString("xcloud_aim", "crosshair_style", "dot")
         val crosshairColor = ConfigEngine.getString("xcloud_aim", "crosshair_color", "#000000")
@@ -685,44 +715,22 @@ object XCloudAimbot {
         val tracersColor = ConfigEngine.getString("xcloud_aim", "tracers_color", "rgba(255,255,255,0.9)")
         val showIgnoreRegion = ConfigEngine.getBool("xcloud_aim", "draw_ignore_region_enabled", false)
         
-        // Debug log every 30 frames
-        if (frameCount % 30 == 0) {
-            android.util.Log.d("XCloudAimbot", "updatePoseVisualsExtended: aimPos=(${scaledAimX}, ${scaledAimY}), fov=$fovRadius, showFov=$showFov, showSkeleton=$showSkeleton, keypointsLen=${keypoints.size}")
-        }
-        
         FloatingOverlayService.updatePoseVisualsExtended(
-            context,
-            keypoints,
-            scaledAimX,
-            scaledAimY,
-            fovRadius,
-            showSkeleton,
-            showFov,
-            showTracers,
-            showCrosshair,
-            crosshairStyle,
-            crosshairColor,
-            crosshairSize,
-            showHeadDot,
-            headDotColor,
-            headDotSize,
-            skeletonColor,
-            fovCircleColor,
-            tracersColor,
-            showIgnoreRegion,
-            detectedPoseCount
+            context, keypoints, aim.x, aim.y, fovRadius,
+            showSkeleton, showFov, showTracers, showCrosshair,
+            crosshairStyle, crosshairColor, crosshairSize,
+            showHeadDot, headDotColor, headDotSize,
+            skeletonColor, fovCircleColor, tracersColor,
+            showIgnoreRegion, detectedPoseCount
         )
     }
 
     private fun drawFovOnlyVisuals(srcWidth: Int, srcHeight: Int) {
         val context = appContext ?: return
         
-        // Don't check isRunning - just try to send. The service will auto-start overlays
-        
         val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
         val fovShowOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "fov_circle_show_only_when_aiming", true)
         
-        // Skip if FOV should only show when aiming and we're not aiming (unless always_on)
         if (fovShowOnlyWhenAiming && !isAimActive && !alwaysOn) return
         
         val showFov = ConfigEngine.getBool("xcloud_aim", "fov_circle_enabled", true)
@@ -735,42 +743,16 @@ object XCloudAimbot {
         val crosshairColor = ConfigEngine.getString("xcloud_aim", "crosshair_color", "#000000")
         val crosshairSize = ConfigEngine.getInt("xcloud_aim", "crosshair_size", 3)
         
-        // Center of screen for FOV when no target
         val centerX = screenWidth / 2f
         val centerY = screenHeight / 2f
         
-        // Empty keypoints array - no skeleton to draw
-        val emptyKeypoints = floatArrayOf()
-        
         FloatingOverlayService.updatePoseVisualsExtended(
-            context,
-            emptyKeypoints,
-            centerX,  // Aim at center
-            centerY,
-            fovRadius,
-            false,  // No skeleton
-            true,   // Show FOV circle
-            false,  // No tracers
-            showCrosshair,
-            crosshairStyle,
-            crosshairColor,
-            crosshairSize,
-            false,  // No head dot
-            "#00FFFF",
-            4,
-            "#FFFFFF",
-            fovCircleColor,
-            "rgba(255,255,255,0.9)",
-            false,
-            0  // No poses detected
+            context, floatArrayOf(), centerX, centerY, fovRadius,
+            false, true, false, showCrosshair,
+            crosshairStyle, crosshairColor, crosshairSize,
+            false, "#00FFFF", 4, "#FFFFFF", fovCircleColor,
+            "rgba(255,255,255,0.9)", false, 0
         )
-    }
-
-    private fun clearVisuals() {
-        val context = appContext ?: return
-        if (FloatingOverlayService.isRunning()) {
-            FloatingOverlayService.clearPoseVisuals(context)
-        }
     }
 
     fun destroy() {
@@ -781,6 +763,7 @@ object XCloudAimbot {
         }
         ortSession?.close()
         ortSession = null
+        inputFloatBuffer = null
         isRunning = false
         targetHistory.clear()
         velocityHistory.clear()
@@ -796,10 +779,11 @@ object XCloudAimbot {
             appendLine("=== XCloudAimbot Status ===")
             appendLine("Running: $isRunning")
             appendLine("Session: ${if (ortSession != null) "loaded" else "null"}")
+            appendLine("NDK: ${if (NativeProcessor.isAvailable()) "available" else "fallback"}")
             appendLine("FPS: %.1f".format(currentFps))
+            appendLine("Delta: %.2fms".format(lastDeltaTime))
             appendLine("Active: $isAimActive")
-            appendLine("Current target: $currentTargetId")
-            appendLine("History entries: ${targetHistory.size}")
+            appendLine("Target: $currentTargetId")
         }
     }
 }

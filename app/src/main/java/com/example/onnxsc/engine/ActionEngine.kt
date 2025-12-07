@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Path
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.KeyEvent
 import java.io.DataOutputStream
@@ -21,6 +22,12 @@ object ActionEngine {
     private val actionQueue = mutableListOf<LogicInstruction>()
     private var lastActionTime = 0L
     
+    private var lowLatencyThread: HandlerThread? = null
+    private var lowLatencyHandler: Handler? = null
+    
+    private var screenCenterX = 540f
+    private var screenCenterY = 960f
+    
     interface ActionCallback {
         fun onActionStarted(instruction: LogicInstruction)
         fun onActionCompleted(instruction: LogicInstruction, success: Boolean)
@@ -33,6 +40,14 @@ object ActionEngine {
         accessibilityService = service
         useRootMode = checkRootAccess()
         isInitialized = true
+        
+        val display = context.resources.displayMetrics
+        screenCenterX = display.widthPixels / 2f
+        screenCenterY = display.heightPixels / 2f
+        
+        lowLatencyThread = HandlerThread("LowLatencyAction", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
+        lowLatencyHandler = Handler(lowLatencyThread!!.looper)
+        
         return true
     }
     
@@ -46,6 +61,11 @@ object ActionEngine {
     
     fun setRootMode(enabled: Boolean) {
         useRootMode = enabled && checkRootAccess()
+    }
+    
+    fun setScreenCenter(x: Float, y: Float) {
+        screenCenterX = x
+        screenCenterY = y
     }
     
     private fun checkRootAccess(): Boolean {
@@ -127,6 +147,46 @@ object ActionEngine {
         }
     }
     
+    fun moveRelative(dx: Float, dy: Float, duration: Long = 1L): Boolean {
+        if (!useRootMode) return false
+        
+        val endX = screenCenterX + dx
+        val endY = screenCenterY + dy
+        
+        lowLatencyHandler?.post {
+            executeShellCommandAsync("input swipe ${screenCenterX.toInt()} ${screenCenterY.toInt()} ${endX.toInt()} ${endY.toInt()} $duration")
+        } ?: run {
+            executeShellCommand("input swipe ${screenCenterX.toInt()} ${screenCenterY.toInt()} ${endX.toInt()} ${endY.toInt()} $duration")
+        }
+        
+        return true
+    }
+    
+    fun moveRelativeFromPoint(startX: Float, startY: Float, dx: Float, dy: Float, duration: Long = 1L): Boolean {
+        if (!useRootMode) return false
+        
+        val endX = startX + dx
+        val endY = startY + dy
+        
+        lowLatencyHandler?.post {
+            executeShellCommandAsync("input swipe ${startX.toInt()} ${startY.toInt()} ${endX.toInt()} ${endY.toInt()} $duration")
+        } ?: run {
+            executeShellCommand("input swipe ${startX.toInt()} ${startY.toInt()} ${endX.toInt()} ${endY.toInt()} $duration")
+        }
+        
+        return true
+    }
+    
+    fun moveToAbsolute(targetX: Float, targetY: Float, duration: Long = 1L): Boolean {
+        if (!useRootMode) return false
+        
+        lowLatencyHandler?.post {
+            executeShellCommandAsync("input swipe ${screenCenterX.toInt()} ${screenCenterY.toInt()} ${targetX.toInt()} ${targetY.toInt()} $duration")
+        }
+        
+        return true
+    }
+    
     fun tap(x: Float, y: Float, duration: Long = 50L): Boolean {
         return if (useRootMode) {
             executeShellCommand("input tap ${x.toInt()} ${y.toInt()}")
@@ -197,6 +257,69 @@ object ActionEngine {
     fun keyPress(keyName: String): Boolean {
         val keyCode = getKeyCodeFromName(keyName)
         return if (keyCode != -1) keyPress(keyCode) else false
+    }
+    
+    fun gameButtonPress(button: String): Boolean {
+        if (!useRootMode) return false
+        
+        val keyCode = getGameButtonKeyCode(button)
+        return if (keyCode != -1) {
+            lowLatencyHandler?.post {
+                executeShellCommandAsync("input keyevent $keyCode")
+            }
+            true
+        } else {
+            false
+        }
+    }
+    
+    fun gameButtonDown(button: String): Boolean {
+        if (!useRootMode) return false
+        
+        val keyCode = getGameButtonKeyCode(button)
+        return if (keyCode != -1) {
+            lowLatencyHandler?.post {
+                executeShellCommandAsync("input keyevent --longpress $keyCode")
+            }
+            true
+        } else {
+            false
+        }
+    }
+    
+    fun gameButtonUp(button: String): Boolean {
+        return true
+    }
+    
+    private fun getGameButtonKeyCode(button: String): Int {
+        return when (button.uppercase()) {
+            "A", "BUTTON_A" -> KeyEvent.KEYCODE_BUTTON_A
+            "B", "BUTTON_B" -> KeyEvent.KEYCODE_BUTTON_B
+            "X", "BUTTON_X" -> KeyEvent.KEYCODE_BUTTON_X
+            "Y", "BUTTON_Y" -> KeyEvent.KEYCODE_BUTTON_Y
+            "LB", "L1", "BUTTON_L1" -> KeyEvent.KEYCODE_BUTTON_L1
+            "RB", "R1", "BUTTON_R1" -> KeyEvent.KEYCODE_BUTTON_R1
+            "LT", "L2", "BUTTON_L2" -> KeyEvent.KEYCODE_BUTTON_L2
+            "RT", "R2", "BUTTON_R2" -> KeyEvent.KEYCODE_BUTTON_R2
+            "L3", "BUTTON_THUMBL" -> KeyEvent.KEYCODE_BUTTON_THUMBL
+            "R3", "BUTTON_THUMBR" -> KeyEvent.KEYCODE_BUTTON_THUMBR
+            "START", "BUTTON_START" -> KeyEvent.KEYCODE_BUTTON_START
+            "SELECT", "BACK", "BUTTON_SELECT" -> KeyEvent.KEYCODE_BUTTON_SELECT
+            "MODE", "BUTTON_MODE" -> KeyEvent.KEYCODE_BUTTON_MODE
+            "DPAD_UP" -> KeyEvent.KEYCODE_DPAD_UP
+            "DPAD_DOWN" -> KeyEvent.KEYCODE_DPAD_DOWN
+            "DPAD_LEFT" -> KeyEvent.KEYCODE_DPAD_LEFT
+            "DPAD_RIGHT" -> KeyEvent.KEYCODE_DPAD_RIGHT
+            else -> -1
+        }
+    }
+    
+    fun rightStickMove(dx: Float, dy: Float): Boolean {
+        return moveRelative(dx, dy, 1L)
+    }
+    
+    fun leftStickMove(dx: Float, dy: Float): Boolean {
+        return false
     }
     
     fun text(text: String): Boolean {
@@ -327,6 +450,17 @@ object ActionEngine {
         }
     }
     
+    private fun executeShellCommandAsync(command: String) {
+        try {
+            val process = Runtime.getRuntime().exec("su")
+            val outputStream = DataOutputStream(process.outputStream)
+            outputStream.writeBytes("$command\n")
+            outputStream.writeBytes("exit\n")
+            outputStream.flush()
+        } catch (e: Exception) {
+        }
+    }
+    
     private fun getKeyCodeFromName(name: String): Int {
         return when (name.uppercase()) {
             "BACK" -> KeyEvent.KEYCODE_BACK
@@ -346,6 +480,14 @@ object ActionEngine {
             "DPAD_LEFT" -> KeyEvent.KEYCODE_DPAD_LEFT
             "DPAD_RIGHT" -> KeyEvent.KEYCODE_DPAD_RIGHT
             "DPAD_CENTER" -> KeyEvent.KEYCODE_DPAD_CENTER
+            "BUTTON_A", "A" -> KeyEvent.KEYCODE_BUTTON_A
+            "BUTTON_B", "B" -> KeyEvent.KEYCODE_BUTTON_B
+            "BUTTON_X", "X" -> KeyEvent.KEYCODE_BUTTON_X
+            "BUTTON_Y", "Y" -> KeyEvent.KEYCODE_BUTTON_Y
+            "BUTTON_L1", "L1", "LB" -> KeyEvent.KEYCODE_BUTTON_L1
+            "BUTTON_R1", "R1", "RB" -> KeyEvent.KEYCODE_BUTTON_R1
+            "BUTTON_L2", "L2", "LT" -> KeyEvent.KEYCODE_BUTTON_L2
+            "BUTTON_R2", "R2", "RT" -> KeyEvent.KEYCODE_BUTTON_R2
             else -> name.toIntOrNull() ?: -1
         }
     }
@@ -367,12 +509,19 @@ object ActionEngine {
         mainHandler.removeCallbacksAndMessages(null)
     }
     
+    fun destroy() {
+        lowLatencyThread?.quitSafely()
+        lowLatencyThread = null
+        lowLatencyHandler = null
+    }
+    
     fun getStatus(): String {
         return buildString {
             appendLine("=== ActionEngine Status ===")
             appendLine("Initialized: $isInitialized")
             appendLine("Root mode: $useRootMode")
             appendLine("Accessibility: ${accessibilityService != null}")
+            appendLine("Low latency thread: ${lowLatencyThread != null}")
             appendLine("Executing: ${isExecuting.get()}")
             appendLine("Queue size: ${actionQueue.size}")
             appendLine("Last action: $lastActionTime")

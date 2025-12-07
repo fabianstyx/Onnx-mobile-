@@ -917,11 +917,6 @@ class FloatingOverlayService : Service() {
         }
         
         private fun drawPoseVisuals(canvas: Canvas) {
-            if (poseKeypoints.isEmpty()) return
-            
-            val numKeypoints = poseKeypoints.size / 2
-            if (numKeypoints < 17) return
-            
             val centerX = width / 2f
             val centerY = height / 2f
             
@@ -930,13 +925,49 @@ class FloatingOverlayService : Service() {
                 style = Paint.Style.STROKE
             }
             
-            // Draw FOV circle
+            // ALWAYS draw FOV circle first (even without keypoints)
             if (showFov && fovRadius > 0) {
                 posePaint.color = parseColor(fovColorStr)
                 posePaint.strokeWidth = 4f
                 posePaint.style = Paint.Style.STROKE
                 canvas.drawCircle(centerX, centerY, fovRadius, posePaint)
             }
+            
+            // ALWAYS draw crosshair at aim point (even without keypoints)
+            if (showCrosshair && aimX > 0 && aimY > 0) {
+                posePaint.color = parseColor(crosshairColor)
+                val size = crosshairSize.toFloat() * 4
+                
+                when (crosshairStyle) {
+                    "dot" -> {
+                        posePaint.style = Paint.Style.FILL
+                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                    }
+                    "cross" -> {
+                        posePaint.style = Paint.Style.STROKE
+                        posePaint.strokeWidth = 3f
+                        canvas.drawLine(aimX - size, aimY, aimX + size, aimY, posePaint)
+                        canvas.drawLine(aimX, aimY - size, aimX, aimY + size, posePaint)
+                    }
+                    "circle" -> {
+                        posePaint.style = Paint.Style.STROKE
+                        posePaint.strokeWidth = 3f
+                        canvas.drawCircle(aimX, aimY, size, posePaint)
+                    }
+                }
+                
+                // Outer ring for visibility
+                posePaint.color = Color.WHITE
+                posePaint.style = Paint.Style.STROKE
+                posePaint.strokeWidth = 2f
+                canvas.drawCircle(aimX, aimY, size + 4, posePaint)
+            }
+            
+            // Return early if no keypoints for skeleton drawing
+            if (poseKeypoints.isEmpty()) return
+            
+            val numKeypoints = poseKeypoints.size / 2
+            if (numKeypoints < 17) return
             
             // Draw skeleton
             if (showSkeleton) {
@@ -990,36 +1021,6 @@ class FloatingOverlayService : Service() {
                     posePaint.style = Paint.Style.STROKE
                     canvas.drawLine(noseX, noseY, aimX, aimY, posePaint)
                 }
-            }
-            
-            // Draw crosshair at aim point
-            if (showCrosshair && aimX > 0 && aimY > 0) {
-                posePaint.color = parseColor(crosshairColor)
-                val size = crosshairSize.toFloat() * 4
-                
-                when (crosshairStyle) {
-                    "dot" -> {
-                        posePaint.style = Paint.Style.FILL
-                        canvas.drawCircle(aimX, aimY, size, posePaint)
-                    }
-                    "cross" -> {
-                        posePaint.style = Paint.Style.STROKE
-                        posePaint.strokeWidth = 3f
-                        canvas.drawLine(aimX - size, aimY, aimX + size, aimY, posePaint)
-                        canvas.drawLine(aimX, aimY - size, aimX, aimY + size, posePaint)
-                    }
-                    "circle" -> {
-                        posePaint.style = Paint.Style.STROKE
-                        posePaint.strokeWidth = 3f
-                        canvas.drawCircle(aimX, aimY, size, posePaint)
-                    }
-                }
-                
-                // Outer ring for visibility
-                posePaint.color = Color.WHITE
-                posePaint.style = Paint.Style.STROKE
-                posePaint.strokeWidth = 2f
-                canvas.drawCircle(aimX, aimY, size + 4, posePaint)
             }
             
             // Draw pose count indicator

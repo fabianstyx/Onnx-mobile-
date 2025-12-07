@@ -172,8 +172,8 @@ object XCloudAimbot {
                     triggerFire(finalAim, best)
                 }
             } else {
-                // No poses detected - still update stats overlay to show FPS/latency
-                clearVisuals()
+                // No poses detected - draw FOV circle anyway if enabled, and update stats
+                drawFovOnlyVisuals(bitmap.width, bitmap.height)
             }
 
             inputTensor.close()
@@ -652,7 +652,10 @@ object XCloudAimbot {
         }
         
         val showSkeleton = ConfigEngine.getBool("xcloud_aim", "skeleton_enabled", true)
-        val showFov = ConfigEngine.getBool("xcloud_aim", "fov_circle_enabled", true)
+        val fovEnabled = ConfigEngine.getBool("xcloud_aim", "fov_circle_enabled", true)
+        val fovShowOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "fov_circle_show_only_when_aiming", true)
+        // Show FOV if: enabled AND (not fovShowOnlyWhenAiming OR isAimActive OR alwaysOn)
+        val showFov = fovEnabled && (!fovShowOnlyWhenAiming || isAimActive || alwaysOn)
         val showTracers = ConfigEngine.getBool("xcloud_aim", "tracers_enabled", true)
         val fovRadius = ConfigEngine.getInt("xcloud_aim", "fov_radius", 136).toFloat()
         
@@ -706,6 +709,58 @@ object XCloudAimbot {
             tracersColor,
             showIgnoreRegion,
             detectedPoseCount
+        )
+    }
+
+    private fun drawFovOnlyVisuals(srcWidth: Int, srcHeight: Int) {
+        val context = appContext ?: return
+        
+        if (!FloatingOverlayService.isRunning()) return
+        
+        val alwaysOn = ConfigEngine.getBool("xcloud_aim", "always_on_enabled", true)
+        val fovShowOnlyWhenAiming = ConfigEngine.getBool("xcloud_aim", "fov_circle_show_only_when_aiming", true)
+        
+        // Skip if FOV should only show when aiming and we're not aiming (unless always_on)
+        if (fovShowOnlyWhenAiming && !isAimActive && !alwaysOn) return
+        
+        val showFov = ConfigEngine.getBool("xcloud_aim", "fov_circle_enabled", true)
+        if (!showFov) return
+        
+        val fovRadius = ConfigEngine.getInt("xcloud_aim", "fov_radius", 136).toFloat()
+        val fovCircleColor = ConfigEngine.getString("xcloud_aim", "fov_circle_color", "rgba(255,255,255,0.3)")
+        val showCrosshair = ConfigEngine.getBool("xcloud_aim", "crosshair_enabled", true)
+        val crosshairStyle = ConfigEngine.getString("xcloud_aim", "crosshair_style", "dot")
+        val crosshairColor = ConfigEngine.getString("xcloud_aim", "crosshair_color", "#000000")
+        val crosshairSize = ConfigEngine.getInt("xcloud_aim", "crosshair_size", 3)
+        
+        // Center of screen for FOV when no target
+        val centerX = screenWidth / 2f
+        val centerY = screenHeight / 2f
+        
+        // Empty keypoints array - no skeleton to draw
+        val emptyKeypoints = floatArrayOf()
+        
+        FloatingOverlayService.updatePoseVisualsExtended(
+            context,
+            emptyKeypoints,
+            centerX,  // Aim at center
+            centerY,
+            fovRadius,
+            false,  // No skeleton
+            true,   // Show FOV circle
+            false,  // No tracers
+            showCrosshair,
+            crosshairStyle,
+            crosshairColor,
+            crosshairSize,
+            false,  // No head dot
+            "#00FFFF",
+            4,
+            "#FFFFFF",
+            fovCircleColor,
+            "rgba(255,255,255,0.9)",
+            false,
+            0  // No poses detected
         )
     }
 

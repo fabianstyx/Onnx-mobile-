@@ -65,3 +65,7 @@
 [x] 65. FIX: Added updateStatsOverlay() method to XCloudAimbot with 100ms throttling to avoid flooding the overlay
 [x] 66. FIX: Stats update even when no model found - overlay shows FPS with 0 detections instead of "------"
 [x] 67. ADDED: Enhanced debug logging for drawVisuals and updatePoseVisualsExtended to diagnose FOV/skeleton visibility issues
+[x] 68. FIX: FOV circle now draws ALWAYS even when no poses detected - added drawFovOnlyVisuals() method
+[x] 69. FIX: BboxOverlayView.drawPoseVisuals now draws FOV and crosshair FIRST before checking for keypoints
+[x] 70. FIX: Added fov_circle_show_only_when_aiming logic to respect config properly
+[x] 71. FIX: Removed duplicate crosshair drawing code from BboxOverlayView

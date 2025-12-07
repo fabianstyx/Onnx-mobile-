@@ -129,6 +129,15 @@ APK generado en: `app/build/outputs/apk/debug/app-debug.apk`
 5. Guardar capturas con resultados superpuestos (botón "Guardar captura")
 
 ## Recent Changes
+- **2025-12-07 (v11)**:
+  - **FIX CRÍTICO: FloatingOverlayService timing issues**
+    - Auto-start foreground service on ANY action, not just ACTION_START
+    - updateStatsInternal, updatePoseInternal, updatePoseExtendedInternal now auto-call showOverlays() if not visible
+    - Removed blocking isVisible checks that prevented overlays from appearing
+    - XCloudAimbot can now send data immediately - service handles overlay creation automatically
+    - Added isReady() method to check if service has active overlays
+    - ESP, FOV circle, skeleton, crosshair now appear reliably when capture starts
+
 - **2025-12-05 (v10)**:
   - **NUEVA FUNCIÓN: Overlay Flotante del Sistema (ESP/Bboxes sobre TODAS las apps)**
     - FloatingOverlayService: Nuevo servicio de primer plano con overlays del sistema

@@ -89,13 +89,9 @@ object XCloudAimbot {
             skipCounter = 0
         }
 
-        val modelPath = ConfigEngine.getString("xcloud_aim", "model_path", "")
-        if (modelPath.isEmpty()) {
-            logWarningThrottled("XCloudAim: model_path no configurado en config.ini")
-            return
-        }
-        if (!java.io.File(modelPath).exists()) {
-            logWarningThrottled("XCloudAim: Modelo no encontrado en $modelPath")
+        val modelPath = findModelPath()
+        if (modelPath == null) {
+            logWarningThrottled("XCloudAim: Modelo MoveNet no encontrado. Copia movenet_singlepose_lightning.onnx a /sdcard/ONNX/ o /sdcard/Download/")
             return
         }
 
@@ -187,6 +183,27 @@ object XCloudAimbot {
             lastErrorTime = now
             android.util.Log.e("XCloudAimbot", message)
         }
+    }
+
+    private fun findModelPath(): String? {
+        val modelName = "movenet_singlepose_lightning.onnx"
+        val possiblePaths = listOf(
+            "/sdcard/ONNX/$modelName",
+            "/sdcard/Download/$modelName",
+            "/storage/emulated/0/ONNX/$modelName",
+            "/storage/emulated/0/Download/$modelName",
+            "/sdcard/Documents/$modelName",
+            "/storage/emulated/0/Documents/$modelName"
+        )
+        
+        for (path in possiblePaths) {
+            val file = java.io.File(path)
+            if (file.exists() && file.canRead()) {
+                android.util.Log.d("XCloudAimbot", "Modelo encontrado en: $path")
+                return path
+            }
+        }
+        return null
     }
 
     private fun bitmapToFloatBuffer(bitmap: Bitmap, size: Int): FloatBuffer {

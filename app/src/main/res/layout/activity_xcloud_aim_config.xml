@@ -159,7 +159,7 @@
                         android:valueFrom="50"
                         android:valueTo="400"
                         android:stepSize="10"
-                        android:value="136" />
+                        android:value="140" />
 
                     <TextView
                         android:layout_width="wrap_content"

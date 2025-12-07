@@ -66,15 +66,30 @@ class XCloudAimConfigActivity : AppCompatActivity() {
         binding.switchTracers.isChecked = ConfigEngine.getBool("xcloud_aim", "tracers_enabled", true)
         binding.switchCrosshair.isChecked = ConfigEngine.getBool("xcloud_aim", "crosshair_enabled", true)
         
-        binding.sliderFovRadius.value = ConfigEngine.getInt("xcloud_aim", "fov_radius", 136).toFloat()
-        binding.sliderAimSpeed.value = ConfigEngine.getFloat("xcloud_aim", "aim_speed_percent", 45f)
-        binding.sliderSmoothing.value = (ConfigEngine.getFloat("xcloud_aim", "smoothing_factor", 0.20f) * 100)
+        // Round FOV to nearest valid step (stepSize=10, valueFrom=50)
+        val fovRaw = ConfigEngine.getInt("xcloud_aim", "fov_radius", 140).toFloat()
+        val fovRounded = (kotlin.math.round((fovRaw - 50f) / 10f) * 10f + 50f).coerceIn(50f, 400f)
+        binding.sliderFovRadius.value = fovRounded
+        
+        // Round aim speed to nearest valid step (stepSize=5, valueFrom=10)
+        val speedRaw = ConfigEngine.getFloat("xcloud_aim", "aim_speed_percent", 45f)
+        val speedRounded = (kotlin.math.round((speedRaw - 10f) / 5f) * 5f + 10f).coerceIn(10f, 100f)
+        binding.sliderAimSpeed.value = speedRounded
+        
+        // Round smoothing to nearest valid step (stepSize=5, valueFrom=0)
+        val smoothRaw = ConfigEngine.getFloat("xcloud_aim", "smoothing_factor", 0.20f) * 100
+        val smoothRounded = (kotlin.math.round(smoothRaw / 5f) * 5f).coerceIn(0f, 100f)
+        binding.sliderSmoothing.value = smoothRounded
         
         val currentAimPoint = ConfigEngine.getString("xcloud_aim", "aim_point", "nose")
         binding.dropdownAimPoint.setText(currentAimPoint, false)
         
         binding.switchPrediction.isChecked = ConfigEngine.getBool("xcloud_aim", "prediction_enabled", true)
-        binding.sliderLatency.value = ConfigEngine.getInt("xcloud_aim", "latency_compensation", 75).toFloat()
+        
+        // Round latency to nearest valid step (stepSize=5, valueFrom=0)
+        val latencyRaw = ConfigEngine.getInt("xcloud_aim", "latency_compensation", 75).toFloat()
+        val latencyRounded = (kotlin.math.round(latencyRaw / 5f) * 5f).coerceIn(0f, 200f)
+        binding.sliderLatency.value = latencyRounded
         
         binding.switchAutoShoot.isChecked = ConfigEngine.getBool("xcloud_aim", "auto_shoot", false)
         binding.switchBurstMode.isChecked = ConfigEngine.getBool("xcloud_aim", "burst_mode", false)
@@ -140,14 +155,14 @@ class XCloudAimConfigActivity : AppCompatActivity() {
         binding.switchTracers.isChecked = true
         binding.switchCrosshair.isChecked = true
         
-        binding.sliderFovRadius.value = 136f
-        binding.sliderAimSpeed.value = 45f
-        binding.sliderSmoothing.value = 20f
+        binding.sliderFovRadius.value = 140f  // Must be valueFrom(50) + multiple of stepSize(10)
+        binding.sliderAimSpeed.value = 45f    // Must be valueFrom(10) + multiple of stepSize(5)
+        binding.sliderSmoothing.value = 20f   // Must be valueFrom(0) + multiple of stepSize(5)
         
         binding.dropdownAimPoint.setText("nose", false)
         
         binding.switchPrediction.isChecked = true
-        binding.sliderLatency.value = 75f
+        binding.sliderLatency.value = 75f     // Must be valueFrom(0) + multiple of stepSize(5)
         
         binding.switchAutoShoot.isChecked = false
         binding.switchBurstMode.isChecked = false

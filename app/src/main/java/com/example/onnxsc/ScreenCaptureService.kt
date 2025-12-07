@@ -22,6 +22,7 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.example.onnxsc.engine.ConfigEngine
@@ -66,6 +67,7 @@ class ScreenCaptureService : Service() {
     }
     
     private var xCloudAimbotInitialized = false
+    private var floatingOverlayStartedByUs = false
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
@@ -191,6 +193,13 @@ if (!xCloudAimbotInitialized) {
         if (projection == null) {
             notifyError("MediaProjection no disponible")
             return
+        }
+        
+        // IMPORTANTE: Iniciar FloatingOverlayService ANTES de empezar a capturar
+        // para que XCloudAimbot pueda mostrar los overlays desde el primer frame
+        val xcloudEnabled = ConfigEngine.getBool("xcloud_aim", "enable", true)
+        if (xcloudEnabled && Settings.canDrawOverlays(this)) {
+            startFloatingOverlayServiceInternal()
         }
         
         try {
@@ -365,8 +374,7 @@ if (!xCloudAimbotInitialized) {
             }
         }
     }, captureHandler)
-}
-
+    }
     
     private fun stopCapture() {
         if (!isCapturing.getAndSet(false)) {
@@ -382,6 +390,41 @@ if (!xCloudAimbotInitialized) {
         }
         
         stopSelf()
+    }
+    
+    private fun startFloatingOverlayServiceInternal() {
+        if (floatingOverlayStartedByUs) return
+        if (FloatingOverlayService.isRunning()) return
+        
+        try {
+            val intent = Intent(this, FloatingOverlayService::class.java).apply {
+                action = FloatingOverlayService.ACTION_START
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            floatingOverlayStartedByUs = true
+            android.util.Log.i("ScreenCaptureService", "FloatingOverlayService iniciado para XCloudAim")
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenCaptureService", "Error iniciando FloatingOverlayService: ${e.message}")
+        }
+    }
+    
+    private fun stopFloatingOverlayServiceInternal() {
+        if (!floatingOverlayStartedByUs) return
+        
+        try {
+            val intent = Intent(this, FloatingOverlayService::class.java).apply {
+                action = FloatingOverlayService.ACTION_STOP
+            }
+            startService(intent)
+            floatingOverlayStartedByUs = false
+            android.util.Log.i("ScreenCaptureService", "FloatingOverlayService detenido")
+        } catch (e: Exception) {
+            android.util.Log.e("ScreenCaptureService", "Error deteniendo FloatingOverlayService: ${e.message}")
+        }
     }
     
     private fun cleanup() {
@@ -413,8 +456,9 @@ if (!xCloudAimbotInitialized) {
         } catch (e: Exception) { }
         captureThread = null
         captureHandler = null
-        XCloudAimbot.destroy()  // solo aquí
+        XCloudAimbot.destroy()
         xCloudAimbotInitialized = false
+        stopFloatingOverlayServiceInternal()
         isCapturing.set(false)
     }
     

@@ -80,6 +80,7 @@ object OnnxProcessor {
     private var ortEnv: OrtEnvironment? = null
     private var currentSession: OrtSession? = null
     private var currentModelUri: String? = null
+    private var currentModelPath: String? = null
     private var inputName: String? = null
     private var inputShape: LongArray? = null
     private var inputLayout: TensorLayout = TensorLayout.NCHW
@@ -88,6 +89,12 @@ object OnnxProcessor {
     private var cachedOutputFormat: OutputFormat = OutputFormat.UNKNOWN
     private var cachedNumClasses: Int = 0
     private val lock = Any()
+    
+    fun getModelPath(): String? = currentModelPath
+    
+    fun getSession(): OrtSession? = currentSession
+    
+    fun getEnvironment(): OrtEnvironment? = ortEnv
 
     private fun flattenArray(arr: Any): FloatArray {
         val result = mutableListOf<Float>()
@@ -353,6 +360,12 @@ object OnnxProcessor {
 
                 if (currentModelUri == uriString && currentSession != null) {
                     onLog("Modelo ya cargado, reutilizando sesión")
+                    if (currentModelPath == null) {
+                        val modelFile = File(context.filesDir, "model.onnx")
+                        if (modelFile.exists()) {
+                            currentModelPath = modelFile.absolutePath
+                        }
+                    }
                     return@synchronized true
                 }
 
@@ -365,6 +378,8 @@ object OnnxProcessor {
                     onLog("Error: No se pudo abrir el archivo del modelo")
                     return@synchronized false
                 }
+                
+                currentModelPath = modelFile.absolutePath
 
                 val env = getEnvironment()
                 
@@ -1229,6 +1244,7 @@ object OnnxProcessor {
         } catch (e: Exception) { }
         currentSession = null
         currentModelUri = null
+        currentModelPath = null
         inputName = null
         inputShape = null
         inputLayout = TensorLayout.NCHW

@@ -3,6 +3,7 @@ package com.example.onnxsc.engine.aim
 import android.content.Context
 import android.graphics.*
 import com.example.onnxsc.FloatingOverlayService
+import com.example.onnxsc.OnnxProcessor
 import com.example.onnxsc.engine.ConfigEngine
 import com.example.onnxsc.engine.ActionEngine
 import ai.onnxruntime.*
@@ -185,9 +186,58 @@ object XCloudAimbot {
         }
     }
 
+    private fun isMoveNetCompatible(modelPath: String): Boolean {
+        val fileName = java.io.File(modelPath).name.lowercase()
+        val moveNetKeywords = listOf("movenet", "pose", "lightning", "thunder", "singlepose", "multipose")
+        return moveNetKeywords.any { fileName.contains(it) }
+    }
+
     private fun findModelPath(): String? {
-        val modelName = "movenet_singlepose_lightning.onnx"
-        val possiblePaths = listOf(
+        val useMainModel = ConfigEngine.getBool("xcloud_aim", "use_main_model", true)
+        
+        if (useMainModel) {
+            val mainModelPath = OnnxProcessor.getModelPath()
+            if (mainModelPath != null) {
+                val file = java.io.File(mainModelPath)
+                if (file.exists() && file.canRead()) {
+                    if (isMoveNetCompatible(mainModelPath)) {
+                        android.util.Log.d("XCloudAimbot", "Usando modelo principal (MoveNet compatible): $mainModelPath")
+                        return mainModelPath
+                    } else {
+                        android.util.Log.d("XCloudAimbot", "Modelo principal no es MoveNet, buscando modelo dedicado...")
+                    }
+                }
+            }
+        }
+        
+        val configPath = ConfigEngine.getString("xcloud_aim", "model_path", "")
+        if (configPath.isNotEmpty()) {
+            val file = java.io.File(configPath)
+            if (file.exists() && file.canRead()) {
+                android.util.Log.d("XCloudAimbot", "Modelo encontrado en config: $configPath")
+                return configPath
+            }
+        }
+        
+        val modelType = ConfigEngine.getString("xcloud_aim", "model_type", "SINGLEPOSE_LIGHTNING")
+        val modelName = if (modelType == "SINGLEPOSE_THUNDER") {
+            "movenet_singlepose_thunder.onnx"
+        } else {
+            "movenet_singlepose_lightning.onnx"
+        }
+        
+        val context = appContext
+        val appPrivatePaths = if (context != null) {
+            listOf(
+                "${context.getExternalFilesDir(null)?.absolutePath}/$modelName",
+                "${context.getExternalFilesDir(null)?.absolutePath}/ONNX/$modelName",
+                "${context.filesDir.absolutePath}/$modelName"
+            )
+        } else {
+            emptyList()
+        }
+        
+        val possiblePaths = appPrivatePaths + listOf(
             "/sdcard/ONNX/$modelName",
             "/sdcard/Download/$modelName",
             "/storage/emulated/0/ONNX/$modelName",

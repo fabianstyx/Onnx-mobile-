@@ -152,7 +152,7 @@ object OnnxProcessor {
                obj is Array<*>
     }
 
-    private fun getEnvironment(): OrtEnvironment {
+    private fun getOrCreateEnvironment(): OrtEnvironment {
         if (ortEnv == null) {
             ortEnv = OrtEnvironment.getEnvironment()
         }
@@ -381,7 +381,7 @@ object OnnxProcessor {
                 
                 currentModelPath = modelFile.absolutePath
 
-                val env = getEnvironment()
+                val env = getOrCreateEnvironment()
                 
                 var useNnapi = true
                 var session: OrtSession? = null
@@ -560,7 +560,7 @@ object OnnxProcessor {
                     TensorLayout.UNKNOWN -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
                 }
 
-                val env = getEnvironment()
+                val env = getOrCreateEnvironment()
                 inputTensor = createTensorForType(env, floatArray, shape, inputType)
 
                 onLog("Ejecutando inferencia...")
@@ -720,7 +720,7 @@ object OnnxProcessor {
                     TensorLayout.UNKNOWN -> longArrayOf(1, channels.toLong(), height.toLong(), width.toLong())
                 }
 
-                val env = getEnvironment()
+                val env = getOrCreateEnvironment()
                 inputTensor = createTensorForType(env, floatArray, shape, inputType)
 
                 outputs = session.run(mapOf(name to inputTensor))

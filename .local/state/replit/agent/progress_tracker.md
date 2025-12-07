@@ -57,3 +57,4 @@
 [x] 57. FEATURE: Model status display - Shows if model is downloaded, file size, and path
 [x] 58. FIX: Added INTERNET and ACCESS_NETWORK_STATE permissions to AndroidManifest.xml for model download
 [x] 59. FIX: Android 12+ storage - Changed model download path from /sdcard/ONNX/ to app's private directory (getExternalFilesDir) which doesn't require permissions
+[x] 60. FIX: OnnxProcessor conflicting overloads - Renamed private getEnvironment() to getOrCreateEnvironment() to fix Kotlin compilation error
